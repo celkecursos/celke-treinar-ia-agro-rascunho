@@ -134,7 +134,7 @@ O projeto treina de verdade, com os dados que ele mesmo coleta, e mede se o trei
 | **Com quais dados** | As safras do município: chuva (Open-Meteo) e rendimento (IBGE) | Perguntas geradas dos municípios cadastrados e as perguntas reais do chat que deram certo |
 | **Como é treinado** | Regressão por mínimos quadrados; o sistema testa a tendência sozinha e as combinações de até 2 variáveis de chuva | LoRA em 4 bits (Unsloth) sobre o Qwen3, exportado em GGUF para o Ollama |
 | **Como é medido** | Cada safra é prevista por um modelo treinado sem ela; o erro é comparado ao da tendência sozinha | Acerto em perguntas com redações que não estão no treino, antes e depois |
-| **Quando treina** | Sozinho depois de cada coleta, e pelo botão **Treinar de novo** | Quando você roda o treino (etapa opcional, precisa de GPU NVIDIA) |
+| **Quando treina** | Sozinho depois de cada coleta (todos os municípios), e pelo botão **Treinar de novo** (só o município e a cultura da tela) | Quando você roda o treino (etapa opcional, precisa de GPU NVIDIA) |
 | **Onde aparece** | Página **Previsão (treino)** e a ferramenta `previsao_safra` do chat | `CHAT_MODEL=celke-agro` no `.env` |
 
 Exemplo real com Rio Verde (GO): o modelo do milho escolheu o maior veranico e a chuva de janeiro e errou, em média,
@@ -1755,13 +1755,17 @@ rendimento (kg/ha) = intercepto + b·ano + c₁·variável₁ + c₂·variável�
 
 - `GET /api/forecasts/{código}/{cultura}`: último treino, histórico (data, origem, safras, variáveis, erros) e se há
   treino em andamento. 404 para município não cadastrado.
-- `POST /api/forecasts/train`: treina de novo em segundo plano (202).
+- `POST /api/forecasts/{código}/{cultura}/train`: treina de novo só esse município e cultura, em segundo plano (202).
+  Município ou cultura que não existem dão 404 na hora; outro treino em andamento dá 409. É o que o botão da tela
+  usa: mais rápido e mais fácil de mostrar.
+- `POST /api/forecasts/train`: treina de novo todos os municípios e culturas, em segundo plano (202).
 
 ## Testes
 
 `solve` e `fit` recuperando coeficientes conhecidos; a validação não vê a safra prevista; o treino escolhe a chuva
 quando ela explica o rendimento e fica só com a tendência quando não explica; mínimo de safras; depois do cadastro,
-o treino existe, usa a chuva, erra menos que a tendência e tem a safra em andamento com os três cenários.
+o treino existe, usa a chuva, erra menos que a tendência e tem a safra em andamento com os três cenários; o
+treino por município e cultura só cria histórico nesse par.
 
 ## Verificação
 
@@ -1943,7 +1947,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 | Página | Conteúdo |
 |---|---|
 | **Análises** (`/`) | Município (`CampoSelect`) e cultura (`Escolha` soja/milho) na URL; alertas do município; indicadores com minigráfico; os gráficos em `Card` (o primeiro na largura toda); estimativa da LSPA em `Tabela`; notas de método em card recolhível. Sem município: `Vazio` com o botão de cadastrar |
-| **Previsão (treino)** (`/previsao`) | O que o modelo aprendeu: safras de treino, modelos testados, erro do modelo × erro da tendência, variáveis com os coeficientes (`Chip`), equação treinada, explicação da IA; gráfico real × previsto; um card por safra prevista (previsto com faixa e variação × tendência, tendência, estimativa do IBGE, chuva); gráfico dos cenários; histórico de treinos; botão **Treinar de novo**, atualizando sozinho enquanto treina |
+| **Previsão (treino)** (`/previsao`) | O que o modelo aprendeu: safras de treino, modelos testados, erro do modelo × erro da tendência, variáveis com os coeficientes (`Chip`), equação treinada, explicação da IA; gráfico real × previsto; um card por safra prevista (previsto com faixa e variação × tendência, tendência, estimativa do IBGE, chuva); gráfico dos cenários; histórico de treinos; botão **Treinar de novo** na mesma linha do município e da cultura, depois do grupo soja/milho, treinando só o que está escolhido nessa linha, atualizando sozinho enquanto treina |
 | **Chat** (`/chat`) | `Conversa`, `Mensagem` e `CampoMensagem`, como num chat comum; exemplos de pergunta no vazio; a pergunta pode chegar por `?pergunta=`; enquanto gera, "Consultando: Chuva no período…"; gráficos dentro da resposta; ferramentas usadas como `Referencias` (nome amigável, fonte, resumo e argumentos); conversas salvas em `Dialogo` lateral, excluir com `useConfirmacao`, tentar de novo |
 | **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |

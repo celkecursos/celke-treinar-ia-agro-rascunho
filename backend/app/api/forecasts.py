@@ -16,6 +16,16 @@ def forecast(code: int, crop: str, c: ContainerDep) -> ForecastView:
 
 
 @router.post(
+    "/{code}/{crop}/train",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Treina de novo só o modelo deste município e cultura (em segundo plano). 409 se já houver treino",
+)
+def train_one(code: int, crop: str, c: ContainerDep) -> Response:
+    c.forecasts.train_in_background(code, crop)
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post(
     "/train",
     status_code=status.HTTP_202_ACCEPTED,
     summary="Treina de novo os modelos de todos os municípios (em segundo plano). Recusa com 409 se já houver treino",

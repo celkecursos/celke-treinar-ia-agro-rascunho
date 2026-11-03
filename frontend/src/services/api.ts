@@ -77,7 +77,8 @@ export const api = {
   analysis: (code: number, crop: CropKey) => request<Analysis>(`/analyses/${code}/${crop}`),
   estimates: () => request<{ items: Estimate[] }>('/estimates').then((r) => r.items),
   forecast: (code: number, crop: CropKey) => request<ForecastView>(`/forecasts/${code}/${crop}`),
-  trainForecasts: () => request<void>('/forecasts/train', { method: 'POST' }),
+  trainForecast: (code: number, crop: CropKey) =>
+    request<void>(`/forecasts/${code}/${crop}/train`, { method: 'POST' }),
   discoveries: () => request<DiscoveryReport>('/discoveries'),
   regenerateDiscoveries: () => request<void>('/discoveries', { method: 'POST' }),
   alerts: (includeInactive = false) =>

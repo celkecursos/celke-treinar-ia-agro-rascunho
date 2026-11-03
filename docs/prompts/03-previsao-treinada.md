@@ -49,13 +49,17 @@ rendimento (kg/ha) = intercepto + b·ano + c₁·variável₁ + c₂·variável�
 
 - `GET /api/forecasts/{código}/{cultura}`: último treino, histórico (data, origem, safras, variáveis, erros) e se há
   treino em andamento. 404 para município não cadastrado.
-- `POST /api/forecasts/train`: treina de novo em segundo plano (202).
+- `POST /api/forecasts/{código}/{cultura}/train`: treina de novo só esse município e cultura, em segundo plano (202).
+  Município ou cultura que não existem dão 404 na hora; outro treino em andamento dá 409. É o que o botão da tela
+  usa: mais rápido e mais fácil de mostrar.
+- `POST /api/forecasts/train`: treina de novo todos os municípios e culturas, em segundo plano (202).
 
 ## Testes
 
 `solve` e `fit` recuperando coeficientes conhecidos; a validação não vê a safra prevista; o treino escolhe a chuva
 quando ela explica o rendimento e fica só com a tendência quando não explica; mínimo de safras; depois do cadastro,
-o treino existe, usa a chuva, erra menos que a tendência e tem a safra em andamento com os três cenários.
+o treino existe, usa a chuva, erra menos que a tendência e tem a safra em andamento com os três cenários; o
+treino por município e cultura só cria histórico nesse par.
 
 ## Verificação
 

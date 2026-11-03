@@ -101,3 +101,17 @@ def test_forecast_tool(container, registered):
 
 def test_forecast_of_unknown_municipality(client):
     assert client.get("/api/forecasts/1234567/soja").status_code == 404
+
+
+def test_train_button_only_trains_the_selected_pair(client, registered):
+    before = {crop: len(client.get(f"/api/forecasts/5218805/{crop}").json()["history"]) for crop in ("soja", "milho")}
+    assert client.post("/api/forecasts/5218805/milho/train").status_code == 202
+    milho = client.get("/api/forecasts/5218805/milho").json()
+    assert len(milho["history"]) == before["milho"] + 1
+    assert milho["latest"]["trigger"] == "botao"
+    assert len(client.get("/api/forecasts/5218805/soja").json()["history"]) == before["soja"]
+
+
+def test_train_button_validates_municipality_and_crop(client, registered):
+    assert client.post("/api/forecasts/1234567/milho/train").status_code == 404
+    assert client.post("/api/forecasts/5218805/arroz/train").status_code == 404

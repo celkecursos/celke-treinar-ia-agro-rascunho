@@ -103,7 +103,7 @@ O projeto treina de verdade, com os dados que ele mesmo coleta, e mede se o trei
 | **Com quais dados** | As safras do município: chuva (Open-Meteo) e rendimento (IBGE) | Perguntas geradas dos municípios cadastrados e as perguntas reais do chat que deram certo |
 | **Como é treinado** | Regressão por mínimos quadrados; o sistema testa a tendência sozinha e as combinações de até 2 variáveis de chuva | LoRA em 4 bits (Unsloth) sobre o Qwen3, exportado em GGUF para o Ollama |
 | **Como é medido** | Cada safra é prevista por um modelo treinado sem ela; o erro é comparado ao da tendência sozinha | Acerto em perguntas com redações que não estão no treino, antes e depois |
-| **Quando treina** | Sozinho depois de cada coleta, e pelo botão **Treinar de novo** | Quando você roda o treino (etapa opcional, precisa de GPU NVIDIA) |
+| **Quando treina** | Sozinho depois de cada coleta (todos os municípios), e pelo botão **Treinar de novo** (só o município e a cultura da tela) | Quando você roda o treino (etapa opcional, precisa de GPU NVIDIA) |
 | **Onde aparece** | Página **Previsão (treino)** e a ferramenta `previsao_safra` do chat | `CHAT_MODEL=celke-agro` no `.env` |
 
 Exemplo real com Rio Verde (GO): o modelo do milho escolheu o maior veranico e a chuva de janeiro e errou, em média,

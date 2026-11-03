@@ -1366,9 +1366,14 @@ export function ForecastPage() {
   }, [view?.training]);
 
   async function retrain() {
+    if (!code) return;
     try {
-      await api.trainForecasts();
-      toast.info('Treinando o modelo', 'Leva alguns segundos; a explicação da IA chega logo depois.');
+      await api.trainForecast(code, crop);
+      const name = list.find((m) => m.code === code)?.name ?? 'o município';
+      toast.info(
+        `Treinando ${crop === 'soja' ? 'a soja' : 'o milho'} de ${name}`,
+        'Leva alguns segundos; a explicação da IA chega logo depois.',
+      );
       setView((v) => (v ? { ...v, training: true } : v));
     } catch (e) {
       toast.err('Não foi possível treinar', e instanceof ApiError ? e.message : undefined);
@@ -1394,18 +1399,13 @@ export function ForecastPage() {
 
   return (
     <div className="app-pagina">
-      <CabecalhoPagina
-        titulo="Previsão da safra"
-        icone="brain"
-        acoes={
-          <Botao rotulo="Treinar de novo" icone="refresh-cw" carregando={view?.training} disabled={view?.training} onClick={() => void retrain()} />
-        }
-      >
+      <CabecalhoPagina titulo="Previsão da safra" icone="brain">
         Aqui a IA é treinada de verdade: um modelo aprende, com as safras passadas, como o rendimento responde ao ano
         (tecnologia) e à chuva. Antes de ser usado, ele é testado prevendo cada safra sem tê-la visto. O treino roda
         sozinho depois de cada coleta.
       </CabecalhoPagina>
 
+      {/* O botão fica na mesma linha do município e da cultura: treina só o que está escolhido aqui. */}
       <div className="app-filtros">
         <CampoSelect<number>
           rotulo="Município"
@@ -1415,6 +1415,14 @@ export function ForecastPage() {
           comBusca
         />
         <Escolha<CropKey> rotulo="Cultura" opcoes={CROP_OPTIONS} valor={crop} aoMudar={(v) => choose({ cultura: v })} />
+        <Botao
+          rotulo="Treinar de novo"
+          dica="Treina só o município e a cultura escolhidos nesta linha"
+          icone="refresh-cw"
+          carregando={view?.training}
+          disabled={view?.training || !code}
+          onClick={() => void retrain()}
+        />
       </div>
 
       {error && <Alerta severidade="err" titulo="Não foi possível carregar" mensagem={error} />}
@@ -1972,7 +1980,8 @@ export const api = {
   analysis: (code: number, crop: CropKey) => request<Analysis>(`/analyses/${code}/${crop}`),
   estimates: () => request<{ items: Estimate[] }>('/estimates').then((r) => r.items),
   forecast: (code: number, crop: CropKey) => request<ForecastView>(`/forecasts/${code}/${crop}`),
-  trainForecasts: () => request<void>('/forecasts/train', { method: 'POST' }),
+  trainForecast: (code: number, crop: CropKey) =>
+    request<void>(`/forecasts/${code}/${crop}/train`, { method: 'POST' }),
   discoveries: () => request<DiscoveryReport>('/discoveries'),
   regenerateDiscoveries: () => request<void>('/discoveries', { method: 'POST' }),
   alerts: (includeInactive = false) =>

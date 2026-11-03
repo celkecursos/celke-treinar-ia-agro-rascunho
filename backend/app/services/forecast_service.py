@@ -27,7 +27,7 @@ from app.schemas.forecasts import (
     TrainedForecast,
 )
 from app.schemas.municipalities import Municipality
-from app.services.analysis_service import AnalysisService, SeasonData, place
+from app.services.analysis_service import AnalysisService, SeasonData, crop_or_error, place
 from app.services.features import Feature, features
 from app.services.forecast_model import TrainingResult, train
 from app.services.ollama_service import LanguageModel
@@ -100,14 +100,23 @@ class ForecastService:
 
     # Disparo
 
-    def train_in_background(self) -> None:
-        """Botão "Treinar de novo": recusa se já houver um treino em andamento."""
+    def train_in_background(self, code: int | None = None, crop_key: str | None = None) -> None:
+        """Botão "Treinar de novo": com município e cultura, treina só esse par; sem eles, todos.
+
+        Valida o município e a cultura na hora (404) e recusa se já houver um treino em andamento (409).
+        """
+        only = None
+        if code is not None:
+            only = (self._analyses.municipality(code), crop_or_error(crop_key or ""))
         if not self._training.acquire(blocking=False):
             raise ConflictError("Já existe um treino em andamento. Aguarde terminar.")
 
         def job() -> None:
             try:
-                self._train_all("botao")
+                if only:
+                    self._train_pair(only[0], only[1], "botao")
+                else:
+                    self._train_all("botao")
             except Exception:
                 logger.exception("Erro no treino da previsão")
             finally:
@@ -128,20 +137,20 @@ class ForecastService:
         return self._training.locked()
 
     def _train_all(self, trigger: str) -> int:
-        trained = 0
-        for m in self._municipalities.all():
-            for crop in CROPS.values():
-                try:
-                    result = self.train_one(m, crop)
-                except AppError as exc:
-                    logger.warning("Treino de %s em %s não rodou: %s", crop.key, m.name, exc.message)
-                    continue
-                if result is None:
-                    continue
-                forecast_id = self._repository.save(result, trigger=trigger, model=self._model_name)
-                trained += 1
-                self._explain(forecast_id, result)
-        return trained
+        return sum(self._train_pair(m, crop, trigger) for m in self._municipalities.all() for crop in CROPS.values())
+
+    def _train_pair(self, m: Municipality, crop: Crop, trigger: str) -> int:
+        """Treina, guarda e pede a explicação. Devolve 1 se treinou, 0 se faltaram safras ou deu erro."""
+        try:
+            result = self.train_one(m, crop)
+        except AppError as exc:
+            logger.warning("Treino de %s em %s não rodou: %s", crop.key, m.name, exc.message)
+            return 0
+        if result is None:
+            return 0
+        forecast_id = self._repository.save(result, trigger=trigger, model=self._model_name)
+        self._explain(forecast_id, result)
+        return 1
 
     def _explain(self, forecast_id: str, result: TrainedForecast) -> None:
         facts = result.model_dump(mode="json", exclude={"charts", "backtest"})
