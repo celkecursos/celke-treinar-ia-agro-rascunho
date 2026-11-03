@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -14,6 +16,8 @@ class ModelStatus(BaseModel):
 class OllamaStatus(BaseModel):
     online: bool
     chat_model: ModelStatus
+    # externo = GPU externa pelo túnel SSH (compose.externo.yaml)
+    location: Literal["local", "externo"]
     error: str | None = None
 
 

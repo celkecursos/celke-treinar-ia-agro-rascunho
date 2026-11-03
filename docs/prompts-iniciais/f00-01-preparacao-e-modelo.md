@@ -104,6 +104,11 @@ suficiente: "pode ficar muito lento ou não carregar". Modelo:
 Se a pessoa informar outro modelo, aceite e avise que ele precisa ter a etiqueta *tools* no Ollama e não foi testado
 com o projeto.
 
+Se o recomendado for `qwen3:4b` ou `qwen3:1.7b`, acrescente depois das opções, sem transformar em opção: "Sem GPU
+boa, o chat pode rodar depois numa GPU externa alugada por hora (por exemplo, a GPU hosting da Hostinger, a partir
+de cerca de R$ 2,31/h): o projeto já vem pronto para isso, veja 'GPU externa' no README ao final." A instalação
+continua com o modelo local escolhido.
+
 Se a memória do Docker no Windows for menor que a necessária e a RAM do computador comportar o modelo, acrescente
 esta orientação, sem alterar nada por conta própria: "Para dar mais memória ao Docker, crie
 `%UserProfile%\.wslconfig` com as linhas `[wsl2]` e `memory=12GB`, rode `wsl --shutdown` e abra o Docker Desktop."
@@ -111,6 +116,15 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
 ### 5. Decisões automáticas (não pergunte)
 
 - **GPU:** ligada se o passo 3 confirmou a GPU.
+- **Fine-tuning (onde treinar o LoRA):**
+
+  | Situação | Decisão |
+  |---|---|
+  | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
+  | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
+  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+
+  O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.
 - **Git:** se a pasta não for um repositório, `git init -b main`. Acrescente `/<pasta de prompts>/` em
   `.git/info/exclude`.
@@ -141,7 +155,7 @@ CHAT_MODEL=<modelo escolhido>
 ```
 
 Se a porta não for `8091`, acrescente `APP_PORT=<porta>`. Com GPU, acrescente `COMPOSE_FILE=compose.yaml;compose.gpu.yaml` no
-Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de menos de 12 GB, acrescente
+Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de 8 GB a menos de 12 GB, acrescente
 `FINETUNE_BASE_MODEL=unsloth/Qwen3-4B`.
 
 Crie `docs/configuracao.md`, trocando os valores:
@@ -155,7 +169,7 @@ Decisões tomadas ao criar o projeto. Os segredos ficam só no `.env`.
 |---|---|
 | Modelo de chat | <modelo> |
 | GPU NVIDIA | <nome e memória, ou "não usada"> |
-| Fine-tuning | <"na GPU" ou "sem GPU: pula o treino"> |
+| Fine-tuning (LoRA) | <"neste computador, base unsloth/Qwen3-8B", "neste computador, base unsloth/Qwen3-4B" ou "GPU externa recomendada (treinar_remoto.sh) ou pendente"> |
 | Memória para o Docker | <memória> GB |
 | Endereço | http://localhost:<porta> |
 `````

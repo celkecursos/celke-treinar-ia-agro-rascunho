@@ -311,6 +311,8 @@ def state_municipalities(state: str, c: ContainerDep) -> IbgeMunicipalityList:
 `backend/app/api/status.py`:
 
 ``````python
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter
 
 from app.api.deps import ContainerDep
@@ -325,19 +327,31 @@ def health() -> Health:
     return Health(status="ok")
 
 
+def _location(url: str) -> str:
+    return "local" if urlsplit(url).hostname == "ollama" else "externo"
+
+
 def _ollama_status(c: ContainerDep) -> OllamaStatus:
     name = c.settings.chat_model
+    location = _location(c.settings.ollama_url)
     try:
         installed = c.ollama.is_installed(name)
     except AppError as exc:
-        return OllamaStatus(online=False, chat_model=ModelStatus(name=name, installed=False), error=exc.message)
+        message = exc.message
+        if location == "externo":
+            message += " Com a GPU externa, confira o túnel: docker compose logs gpu-tunnel"
+        return OllamaStatus(
+            online=False, chat_model=ModelStatus(name=name, installed=False), location=location, error=message
+        )
     tools = None
     if installed:
         try:
             tools = "tools" in c.ollama.capabilities()
         except AppError:
             tools = None
-    return OllamaStatus(online=True, chat_model=ModelStatus(name=name, installed=installed, tools=tools))
+    return OllamaStatus(
+        online=True, chat_model=ModelStatus(name=name, installed=installed, tools=tools), location=location
+    )
 
 
 @router.get("/status", response_model=SystemStatus, summary="Estado dos serviços e do agendador")
@@ -2725,6 +2739,8 @@ class IbgeMunicipalityList(BaseModel):
 `backend/app/schemas/status.py`:
 
 ``````python
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -2741,6 +2757,8 @@ class ModelStatus(BaseModel):
 class OllamaStatus(BaseModel):
     online: bool
     chat_model: ModelStatus
+    # externo = GPU externa pelo túnel SSH (compose.externo.yaml)
+    location: Literal["local", "externo"]
     error: str | None = None
 
 
@@ -6791,8 +6809,14 @@ def test_status(client):
     assert data["backend"]["online"] is True
     assert data["database"]["online"] is True
     assert data["ollama"]["chat_model"]["tools"] is True
+    assert data["ollama"]["location"] == "local"
     assert data["scheduler"]["enabled"] is False
     assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_status_with_external_gpu(client, settings):
+    settings.ollama_url = "http://gpu-tunnel:11434"
+    assert client.get("/api/status").json()["ollama"]["location"] == "externo"
 ``````
 
 `backend/tests/unit/test_chat.py`:

@@ -63,7 +63,7 @@ def blocks(paths):
 
 
 ROOT = [".gitignore", ".gitattributes", ".dockerignore", ".env.example", "compose.yaml", "compose.gpu.yaml",
-        "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
+        "compose.externo.yaml", "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
         "finetuning/output/.gitkeep"]
 BACKEND = [f for f in FILES if f.startswith("backend/")]
 FRONTEND = [f for f in FILES if f.startswith("frontend/") and f != "frontend/package-lock.json"]
@@ -189,6 +189,11 @@ suficiente: "pode ficar muito lento ou não carregar". Modelo:
 Se a pessoa informar outro modelo, aceite e avise que ele precisa ter a etiqueta *tools* no Ollama e não foi testado
 com o projeto.
 
+Se o recomendado for `qwen3:4b` ou `qwen3:1.7b`, acrescente depois das opções, sem transformar em opção: "Sem GPU
+boa, o chat pode rodar depois numa GPU externa alugada por hora (por exemplo, a GPU hosting da Hostinger, a partir
+de cerca de R$ 2,31/h): o projeto já vem pronto para isso, veja 'GPU externa' no README ao final." A instalação
+continua com o modelo local escolhido.
+
 Se a memória do Docker no Windows for menor que a necessária e a RAM do computador comportar o modelo, acrescente
 esta orientação, sem alterar nada por conta própria: "Para dar mais memória ao Docker, crie
 `%UserProfile%\\.wslconfig` com as linhas `[wsl2]` e `memory=12GB`, rode `wsl --shutdown` e abra o Docker Desktop."
@@ -196,6 +201,15 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
 ### 5. Decisões automáticas (não pergunte)
 
 - **GPU:** ligada se o passo 3 confirmou a GPU.
+- **Fine-tuning (onde treinar o LoRA):**
+
+  | Situação | Decisão |
+  |---|---|
+  | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
+  | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
+  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+
+  O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.
 - **Git:** se a pasta não for um repositório, `git init -b main`. Acrescente `/<pasta de prompts>/` em
   `.git/info/exclude`.
@@ -226,7 +240,7 @@ CHAT_MODEL=<modelo escolhido>
 ```
 
 Se a porta não for `8091`, acrescente `APP_PORT=<porta>`. Com GPU, acrescente `COMPOSE_FILE=compose.yaml;compose.gpu.yaml` no
-Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de menos de 12 GB, acrescente
+Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de 8 GB a menos de 12 GB, acrescente
 `FINETUNE_BASE_MODEL=unsloth/Qwen3-4B`.
 
 Crie `docs/configuracao.md`, trocando os valores:
@@ -240,7 +254,7 @@ Decisões tomadas ao criar o projeto. Os segredos ficam só no `.env`.
 |---|---|
 | Modelo de chat | <modelo> |
 | GPU NVIDIA | <nome e memória, ou "não usada"> |
-| Fine-tuning | <"na GPU" ou "sem GPU: pula o treino"> |
+| Fine-tuning (LoRA) | <"neste computador, base unsloth/Qwen3-8B", "neste computador, base unsloth/Qwen3-4B" ou "GPU externa recomendada (treinar_remoto.sh) ou pendente"> |
 | Memória para o Docker | <memória> GB |
 | Endereço | http://localhost:<porta> |
 `````
@@ -427,7 +441,7 @@ treino e o script que cria o modelo treinado no Ollama. O dataset e a avaliaçã
 (`python -m app.finetune`).
 
 {RULES}
-Depois, deixe `finetuning/criar_modelo.sh` executável: `chmod +x finetuning/criar_modelo.sh`.
+Depois, deixe os scripts executáveis: `chmod +x finetuning/criar_modelo.sh finetuning/treinar_remoto.sh`.
 
 {blocks(FINETUNE)}
 ## Verificação
@@ -448,7 +462,8 @@ Depois, deixe `finetuning/criar_modelo.sh` executável: `chmod +x finetuning/cri
    docker compose exec ollama sh /finetuning/criar_modelo.sh <modelo de docs/configuracao.md> celke-agro
    docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
    ```
-   Sem GPU, registre "treino LoRA pendente: precisa de GPU NVIDIA" no relatório e siga.
+   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com ./finetuning/treinar_remoto.sh
+   usuario@ip (README, GPU externa)" no relatório e siga.
 
 Mostre ao usuário os percentuais de acerto de antes e de depois.
 
@@ -456,15 +471,16 @@ Mostre ao usuário os percentuais de acerto de antes e de depois.
 
 ```bash
 git add finetuning
-git update-index --chmod=+x finetuning/criar_modelo.sh
+git update-index --chmod=+x finetuning/criar_modelo.sh finetuning/treinar_remoto.sh
 git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 ```
 
 ## Orientação ao terminar
 
 > **Pronto:** o fine-tuning está preparado. <Com GPU: "O modelo treinado `celke-agro` acertou <depois>% das perguntas
-> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas; o
-> treino roda num computador com GPU NVIDIA, com os comandos do README."> Continue sem fazer nada.
+> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
+> treinar, alugue uma GPU por hora (por exemplo, na Hostinger) e rode `./finetuning/treinar_remoto.sh root@<ip>`:
+> veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
 F05 = """# Integração ponta a ponta
@@ -576,7 +592,8 @@ Mostre, trocando os marcadores:
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.
 >
-> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)".
+> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)". Sem GPU boa, use uma
+> GPU externa alugada por hora, para o chat e para o treino: veja "GPU externa (Hostinger e similares)".
 >
 > **Enviar ao GitHub (opcional):** crie um repositório vazio e rode `git remote add origin <url>` e
 > `git push -u origin main homolog`.
@@ -602,7 +619,7 @@ durante a execução.
 | Git | Se faltar, o prompt mostra como instalar |
 | Internet | Para baixar imagens, o modelo e os dados públicos |
 | Disco | Cerca de 10 GB mais o modelo (mais 25 GB para o fine-tuning, com GPU) |
-| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA |
+| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA; sem ela, dá para alugar uma por hora (GPU externa) |
 
 **Não instale o Ollama, o Python nem o Node.** Tudo roda no Docker.
 

@@ -29,12 +29,19 @@ Write-Host 'Subindo os servicos (a primeira vez constroi as imagens e pode levar
 docker compose up -d --build
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-Write-Host 'Aguardando o modelo (o download so acontece na primeira vez; sao de 5 a 9 GB).'
-Write-Host 'Para ver o progresso, em outro terminal: docker compose logs -f ollama-init'
-$status = docker wait celke-treinar-ia-agro-ollama-init-1
-if ($status -ne '0') {
-  Write-Host 'Falha ao baixar o modelo. Veja: docker compose logs ollama-init'
-  exit 1
+$services = @(docker compose config --services)
+if ($services -contains 'ollama-init') {
+  Write-Host 'Aguardando o modelo (o download so acontece na primeira vez; sao de 5 a 9 GB).'
+  Write-Host 'Para ver o progresso, em outro terminal: docker compose logs -f ollama-init'
+  $status = docker wait celke-treinar-ia-agro-ollama-init-1
+  if ($status -ne '0') {
+    Write-Host 'Falha ao baixar o modelo. Veja: docker compose logs ollama-init'
+    exit 1
+  }
+} else {
+  # compose.externo.yaml: o modelo roda na GPU externa, pelo tunel SSH
+  Write-Host 'Modelo na GPU externa: confira o tunel com docker compose logs gpu-tunnel.'
+  Write-Host 'O modelo precisa estar baixado no servidor (la: ollama pull <modelo de CHAT_MODEL>).'
 }
 
 $port = ((docker compose port frontend 80) -split ':')[-1]

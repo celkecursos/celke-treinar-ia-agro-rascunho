@@ -18,7 +18,7 @@ durante a execução.
 | Git | Se faltar, o prompt mostra como instalar |
 | Internet | Para baixar imagens, o modelo e os dados públicos |
 | Disco | Cerca de 10 GB mais o modelo (mais 25 GB para o fine-tuning, com GPU) |
-| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA |
+| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA; sem ela, dá para alugar uma por hora (GPU externa) |
 
 **Não instale o Ollama, o Python nem o Node.** Tudo roda no Docker.
 

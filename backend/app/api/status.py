@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter
 
 from app.api.deps import ContainerDep
@@ -12,19 +14,31 @@ def health() -> Health:
     return Health(status="ok")
 
 
+def _location(url: str) -> str:
+    return "local" if urlsplit(url).hostname == "ollama" else "externo"
+
+
 def _ollama_status(c: ContainerDep) -> OllamaStatus:
     name = c.settings.chat_model
+    location = _location(c.settings.ollama_url)
     try:
         installed = c.ollama.is_installed(name)
     except AppError as exc:
-        return OllamaStatus(online=False, chat_model=ModelStatus(name=name, installed=False), error=exc.message)
+        message = exc.message
+        if location == "externo":
+            message += " Com a GPU externa, confira o túnel: docker compose logs gpu-tunnel"
+        return OllamaStatus(
+            online=False, chat_model=ModelStatus(name=name, installed=False), location=location, error=message
+        )
     tools = None
     if installed:
         try:
             tools = "tools" in c.ollama.capabilities()
         except AppError:
             tools = None
-    return OllamaStatus(online=True, chat_model=ModelStatus(name=name, installed=installed, tools=tools))
+    return OllamaStatus(
+        online=True, chat_model=ModelStatus(name=name, installed=installed, tools=tools), location=location
+    )
 
 
 @router.get("/status", response_model=SystemStatus, summary="Estado dos serviços e do agendador")

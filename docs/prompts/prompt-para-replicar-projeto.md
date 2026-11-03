@@ -38,7 +38,12 @@ Você é o **coordenador**: não execute as etapas no seu próprio contexto.
 4. **Docker**: confira `docker compose version` e `docker info`. Se o Docker não estiver rodando, pare e peça para a
    pessoa iniciá-lo.
 
-### Para cada etapa
+### Etapa 0
+
+Execute `00-preparacao-e-modelo.md` você mesmo, nesta sessão, porque ela conversa com o usuário (capacidade do
+computador, modelo de IA, onde treinar). As demais etapas usam os valores de `docs/configuracao.md`.
+
+### Para cada etapa (1 em diante)
 
 1. Leia o arquivo da etapa e passe o conteúdo **inteiro** a um subagente novo, com esta instrução no início: "Você
    está na raiz do projeto Celke Treinar IA Agro. Execute o prompt abaixo por completo, incluindo a seção

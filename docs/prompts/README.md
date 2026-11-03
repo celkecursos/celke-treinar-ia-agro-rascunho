@@ -10,7 +10,7 @@ avisar. Backend Python com FastAPI, frontend React com o layout `@celke/kole-rea
 - Docker com o Docker Compose em execução (`docker compose version`).
 - Git.
 - Internet: as etapas baixam imagens Docker, pacotes do npm e do PyPI, o modelo (de 5 a 9 GB) e os dados públicos.
-- 16 GB de RAM (modelo na CPU) ou GPU NVIDIA.
+- 16 GB de RAM (modelo na CPU), GPU NVIDIA ou uma GPU externa alugada por hora (a etapa 0 recomenda).
 
 ## Como usar
 
@@ -30,12 +30,13 @@ nova do agente, na pasta do projeto. Siga a **Verificação** de cada prompt ant
 
 | Ordem | Prompt | Resultado |
 |---|---|---|
+| 0 | [Preparação e escolha do modelo](00-preparacao-e-modelo.md) | Capacidade do computador conferida, modelo do chat e lugar do treino escolhidos, `.env` e licença |
 | 1 | [Estrutura inicial e Docker](01-estrutura-e-docker.md) | Pastas, `compose.yaml` com Ollama e PostgreSQL, download do modelo, `.env.example`, scripts |
 | 2 | [Coleta de dados e análises](02-coleta-e-analises.md) | API FastAPI, clientes do Open-Meteo e do IBGE, cadastro de municípios, coletas com registro, agendador, análises com estatística e gráficos, testes |
 | 3 | [Treinar o modelo de previsão da safra](03-previsao-treinada.md) | Regressão treinada com as safras, validação deixando uma de fora, comparação com a tendência, cenários, histórico de treinos |
 | 4 | [IA com ferramentas: responder, descobrir e avisar](04-ia-com-ferramentas.md) | Chat com tool calling (10 ferramentas), conversas, descobertas com filtro estatístico, alertas, explicação da IA nos treinos |
 | 5 | [Frontend React com o Kole](05-frontend-kole.md) | Análises, Previsão, Chat, Descobertas, Alertas, Municípios e Status com o `@celke/kole-react` e os gráficos dele |
-| 6 | [Fine-tuning do modelo de linguagem](06-fine-tuning.md) | Dataset de perguntas → ferramentas, avaliação antes e depois, treino LoRA na GPU, modelo `celke-agro` no Ollama |
+| 6 | [Fine-tuning do modelo de linguagem](06-fine-tuning.md) | Dataset de perguntas → ferramentas, avaliação antes e depois, treino LoRA na GPU local ou externa, modelo `celke-agro` no Ollama |
 | 7 | [Integração ponta a ponta](07-integracao.md) | Fluxo completo com as APIs públicas e o modelo real, persistência |
 | 8 | [Documentação e guia para agentes](08-documentacao.md) | `README.md` completo e `CLAUDE.md` |
 

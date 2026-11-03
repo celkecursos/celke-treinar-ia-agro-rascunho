@@ -50,6 +50,10 @@ comandos e as variáveis de ambiente.
 - Mudou uma variável? Atualize `config.py`, `compose.yaml`, `.env.example` e a tabela do README juntos.
 - Só a porta do frontend é publicada, em `127.0.0.1`. Ollama, PostgreSQL e backend não têm porta publicada no
   `compose.yaml` (a do backend existe só no `compose.dev.yaml`).
+- GPU externa: o modelo do chat pode rodar num servidor alugado (`compose.externo.yaml`), sempre pelo túnel SSH do
+  serviço `gpu-tunnel`; nunca publique a porta do Ollama do servidor. O fine-tuning remoto é o
+  `finetuning/treinar_remoto.sh`. A página de Status diz se o Ollama é local ou externo (`ollama.location`).
+- Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
 - O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py`, por HTTPS, e só envia
   parâmetros de consulta (nomes de municípios, coordenadas, datas, códigos do IBGE).
 

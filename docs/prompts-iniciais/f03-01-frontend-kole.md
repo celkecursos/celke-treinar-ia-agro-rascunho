@@ -1735,13 +1735,21 @@ export function StatusPage() {
       </CabecalhoPagina>
 
       {s && !s.ollama.online && (
-        <Alerta severidade="err" titulo="Ollama desconectado" mensagem={s.ollama.error ?? 'Veja: docker compose logs ollama'} />
+        <Alerta
+          severidade="err"
+          titulo={s.ollama.location === 'externo' ? 'GPU externa desconectada' : 'Ollama desconectado'}
+          mensagem={s.ollama.error ?? 'Veja: docker compose logs ollama'}
+        />
       )}
       {s?.ollama.online && !s.ollama.chat_model.installed && (
         <Alerta
           severidade="warn"
           titulo="Modelo ainda não instalado"
-          mensagem="O download inicial pode levar alguns minutos. Acompanhe com: docker compose logs -f ollama-init"
+          mensagem={
+            s.ollama.location === 'externo'
+              ? `Baixe o modelo no servidor da GPU: ollama pull ${s.ollama.chat_model.name}`
+              : 'O download inicial pode levar alguns minutos. Acompanhe com: docker compose logs -f ollama-init'
+          }
         />
       )}
       {s?.ollama.chat_model.tools === false && (
@@ -1820,7 +1828,10 @@ export function StatusPage() {
               <OnlineStatus online={!!s?.backend.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
-              <span>Ollama</span>
+              <span>
+                Ollama{' '}
+                {s && (s.ollama.location === 'externo' ? '(GPU externa, pelo túnel SSH)' : '(neste computador)')}
+              </span>
               <OnlineStatus online={!!s?.ollama.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
@@ -2638,6 +2649,7 @@ export interface SystemStatus {
   ollama: {
     online: boolean;
     chat_model: { name: string; installed: boolean; tools: boolean | null };
+    location: 'local' | 'externo';
     error: string | null;
   };
   database: { online: boolean; error: string | null };

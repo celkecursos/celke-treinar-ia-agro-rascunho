@@ -42,6 +42,7 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 - [Como executar (quem baixou do GitHub)](#como-executar-quem-baixou-do-github)
 - [Os dois treinamentos](#os-dois-treinamentos)
 - [Fine-tuning do modelo de linguagem (GPU)](#fine-tuning-do-modelo-de-linguagem-gpu)
+- [GPU externa (Hostinger e similares)](#gpu-externa-hostinger-e-similares)
 - [Funcionalidades](#funcionalidades)
 - [Arquitetura](#arquitetura)
 - [Fontes de dados](#fontes-de-dados)
@@ -144,6 +145,11 @@ soja, a chuva quase não melhorou a previsão (7%), e a tela diz isso.
 dia, ficam no PostgreSQL e chegam por ferramentas: um dado novo já vale na próxima pergunta. **As contas ficam no
 código** (somas, médias, tendência, correlação, p-valor, regressão): num teste, o `qwen3:8b` errou uma média simples.
 
+**Por que não há modelo de embeddings:** embeddings servem para busca por semelhança de texto (RAG), como a busca nos
+trechos de PDFs do Celke IA Local. Aqui nenhum dos treinamentos precisa deles: a previsão é uma regressão sobre
+números, o LoRA treina os pesos do próprio Qwen3 com texto, e o chat consulta as tabelas por ferramentas. Por isso a
+página de Status não mostra modelo de embeddings: um modelo a mais só gastaria download e memória.
+
 Além de prever, a IA tem três papéis com os dados:
 
 | Papel | Onde | O que faz |
@@ -190,6 +196,60 @@ exatamente o que o fine-tuning ensina:
 
 O que esperar: o treino ensina comportamento, não números. O ganho é maior em modelos menores: com GPU de 8 GB, use
 `FINETUNE_BASE_MODEL=unsloth/Qwen3-4B` e `qwen3:4b` como base no passo 4, e compare com o `qwen3:8b` sem treino.
+
+## GPU externa (Hostinger e similares)
+
+Sem GPU boa no computador, dá para alugar uma por hora, por exemplo uma
+[instância de GPU da Hostinger](https://www.hostinger.com/br/gpu-hosting) (RTX 4090 com 24 GB a partir de R$ 2,31/h,
+L40S com 48 GB a partir de R$ 5,27/h, com acesso root por SSH e o app Ollama pronto). Qualquer servidor Linux com GPU
+NVIDIA, SSH e o Ollama serve. Há dois usos, independentes:
+
+| Uso | O que roda no servidor | O que continua no seu computador |
+|---|---|---|
+| **Modelo do chat** | Ollama com o `CHAT_MODEL` (ex.: `qwen3:14b`, que não roda bem na CPU) | Frontend, backend, banco, coletas e o treino da previsão |
+| **Fine-tuning** | O treino LoRA (de 20 a 60 minutos) | Tudo; o modelo treinado volta para `finetuning/output/` |
+
+**Segurança:** o backend fala com o Ollama do servidor por um **túnel SSH** aberto pelo próprio Compose (serviço
+`gpu-tunnel`, dentro da rede do Docker). A porta do Ollama não precisa ficar aberta na internet; se o painel do
+provedor oferecer firewall, deixe aberta só a porta SSH. Use chave SSH, não senha.
+
+**Custo:** a cobrança corre enquanto a instância existe. Desligue (ou apague) no painel quando terminar; apagar perde
+os arquivos que não estiverem no armazenamento persistente.
+
+### Modelo do chat na GPU externa
+
+1. No painel, crie a instância com o app Ollama e cadastre a sua chave SSH pública (`~/.ssh/id_ed25519.pub`; sem
+   chave, crie com `ssh-keygen -t ed25519`).
+2. Baixe o modelo no servidor: `ssh root@<ip> ollama pull qwen3:14b`.
+3. No `.env`:
+   ```dotenv
+   COMPOSE_FILE=compose.yaml;compose.externo.yaml   # no Linux e no macOS, separe com ":"
+   GPU_SSH=root@<ip>
+   GPU_SSH_KEY=~/.ssh/id_ed25519
+   CHAT_MODEL=qwen3:14b
+   ```
+4. Rode o script de inicialização. O Ollama local não sobe; a página **Status e coletas** mostra "Ollama (GPU
+   externa, pelo túnel SSH)". Se aparecer desconectado: `docker compose logs gpu-tunnel`.
+
+Para voltar ao modelo local, tire as linhas do `.env` e rode o script de novo.
+
+### Fine-tuning na GPU externa
+
+Com o dataset gerado (`docker compose --profile finetune run --rm finetune-tools exportar`), na raiz do projeto
+(Linux, macOS ou **Git Bash** no Windows):
+
+```bash
+./finetuning/treinar_remoto.sh root@<ip>
+```
+
+O script confere a GPU do servidor, envia o dataset e o `treinar.py`, instala as dependências fixas num ambiente
+Python isolado (a primeira vez baixa cerca de 10 GB), treina e traz `celke-agro.gguf` e `treino.json` para
+`finetuning/output/`. Depois, crie o modelo e meça o "depois" como no passo 4 e 5 de
+[Fine-tuning](#fine-tuning-do-modelo-de-linguagem-gpu). Com o chat também na GPU externa, rode com
+`CRIAR_NO_SERVIDOR=1` para criar o `celke-agro` direto no Ollama do servidor e use `CHAT_MODEL=celke-agro`.
+
+Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o `unsloth/Qwen3-14B`
+(`FINETUNE_BASE_MODEL`), usando `qwen3:14b` como base no `criar_modelo.sh`.
 
 ## Funcionalidades
 
@@ -238,6 +298,7 @@ Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI 
 | `ollama-init` | Baixa o modelo se faltar e termina | nenhuma |
 | `postgres` | Todos os dados | nenhuma |
 | `finetune-tools`, `finetune-train` | Dataset, avaliação e treino do fine-tuning (profile `finetune`, só quando você roda) | nenhuma |
+| `gpu-tunnel` | Túnel SSH até a GPU externa (só com `compose.externo.yaml`, no lugar do `ollama`) | nenhuma |
 
 O backend é dividido em `api/` (rotas finas) → `services/` (regras) → `repositories/` (SQL). O ciclo do chat:
 
@@ -288,7 +349,7 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 |---|---|---|
 | `APP_PORT` | `8091` | Porta do navegador |
 | `APP_BIND` | `127.0.0.1` | `0.0.0.0` abre na rede local (veja [Segurança](#segurança-e-privacidade)) |
-| `COMPOSE_FILE` | — | Liga a GPU NVIDIA (`compose.yaml;compose.gpu.yaml` no Windows, `:` no Linux) |
+| `COMPOSE_FILE` | — | GPU NVIDIA local (`compose.yaml;compose.gpu.yaml`) ou GPU externa (`compose.yaml;compose.externo.yaml`); no Linux e no macOS, separe com `:` |
 | `POSTGRES_PASSWORD` | — | Senha do banco (obrigatória; gerada pelos scripts) |
 | `POSTGRES_DB` / `POSTGRES_USER` | `celke_agro` / `celke` | Banco e usuário |
 | `CHAT_MODEL` | `qwen3:8b` | Modelo do Ollama; precisa aceitar ferramentas |
@@ -311,6 +372,9 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 | `DISCOVERY_MIN_YEARS` | `8` | Safras mínimas para testar uma relação |
 | `ALERT_RAIN_DEFICIT_PCT` | `25` | Chuva da safra abaixo da média que gera alerta (%) |
 | `ALERT_DRY_SPELL_DAYS` | `10` | Dias seguidos sem chuva que geram alerta |
+| `GPU_SSH` | — | Usuário e IP do servidor de GPU externa (`root@203.0.113.10`), com `compose.externo.yaml` |
+| `GPU_SSH_PORT` | `22` | Porta SSH do servidor |
+| `GPU_SSH_KEY` | `~/.ssh/id_ed25519` | Chave privada que o servidor aceita |
 | `FINETUNE_BASE_MODEL` | `unsloth/Qwen3-8B` | Modelo base do fine-tuning (Hugging Face) |
 | `FINETUNE_EPOCHS` | `2` | Passadas pelo dataset no fine-tuning |
 | `FINETUNE_MAX_SEQ_LENGTH` | `4096` | Tamanho máximo de cada exemplo de treino, em tokens |
@@ -351,6 +415,7 @@ A documentação interativa da API fica em http://localhost:8091/api/docs.
 | Sem GPU, 16 GB de RAM | `qwen3:8b` | Medido num Ryzen 7 5700: 7,9 tokens/s; pergunta com ferramentas em cerca de 1 minuto; relatório de descobertas em cerca de 3 minutos |
 | GPU NVIDIA de 8 GB | `qwen3:8b` | Cabe inteiro na GPU |
 | GPU NVIDIA de 12 GB (ex.: RTX 3060) | `qwen3:14b` | Escolhe ferramentas e interpreta melhor; o melhor para gravar o tutorial |
+| Computador fraco ou sem GPU, mas com internet | `qwen3:14b` na [GPU externa](#gpu-externa-hostinger-e-similares) | Cobrado por hora; o resto do projeto continua local |
 | Pouca memória | `qwen3:4b` | Mais rápido, erra mais a escolha das ferramentas |
 
 O modelo precisa aceitar ferramentas (tool calling): no site do Ollama, a etiqueta **tools**. A página **Status e
@@ -368,6 +433,8 @@ Para trocar: mude `CHAT_MODEL` no `.env` e rode o script de inicialização de n
 | Município parado em "Coletando" depois de reiniciar | A coleta foi interrompida e fica como erro; clique em **Coletar chuva agora** |
 | Chat lento ou "demorou demais para responder" | Primeira pergunta carrega o modelo. Na CPU, use `qwen3:8b` ou menor; com GPU, ligue o `compose.gpu.yaml` |
 | "O modelo não aceita ferramentas" | Troque `CHAT_MODEL` por um modelo com a etiqueta tools |
+| "GPU externa desconectada" no Status | Veja `docker compose logs gpu-tunnel`: IP, porta, chave ou a instância desligada no painel |
+| Treino remoto para em "Conferindo a GPU" | O servidor não aceitou a chave SSH ou não tem driver NVIDIA; confira o tipo da instância |
 | Página não abre na porta 8091 | Outra aplicação usa a porta: mude `APP_PORT` no `.env` |
 
 ## Segurança e privacidade
@@ -405,7 +472,9 @@ frontend/
   src/pages/          Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e coletas
   src/components/     ChartView (especificação do backend → gráfico do Kole)
   src/services/       cliente da API e leitor do streaming
-finetuning/           treino LoRA na GPU (Dockerfile, treinar.py) e criar_modelo.sh para o Ollama
+finetuning/           treino LoRA na GPU (Dockerfile, treinar.py), treinar_remoto.sh (GPU externa) e
+                      criar_modelo.sh para o Ollama
+compose.externo.yaml  modelo do chat na GPU externa, pelo túnel SSH
 docs/
   prompts/            as etapas do tutorial, em texto
   prompts-iniciais/   prompts que recriam o projeto do zero com o conteúdo exato dos arquivos (gerados)
@@ -482,6 +551,10 @@ comandos e as variáveis de ambiente.
 - Mudou uma variável? Atualize `config.py`, `compose.yaml`, `.env.example` e a tabela do README juntos.
 - Só a porta do frontend é publicada, em `127.0.0.1`. Ollama, PostgreSQL e backend não têm porta publicada no
   `compose.yaml` (a do backend existe só no `compose.dev.yaml`).
+- GPU externa: o modelo do chat pode rodar num servidor alugado (`compose.externo.yaml`), sempre pelo túnel SSH do
+  serviço `gpu-tunnel`; nunca publique a porta do Ollama do servidor. O fine-tuning remoto é o
+  `finetuning/treinar_remoto.sh`. A página de Status diz se o Ollama é local ou externo (`ollama.location`).
+- Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
 - O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py`, por HTTPS, e só envia
   parâmetros de consulta (nomes de municípios, coordenadas, datas, códigos do IBGE).
 
@@ -604,7 +677,7 @@ def blocks(paths):
 
 
 ROOT = [".gitignore", ".gitattributes", ".dockerignore", ".env.example", "compose.yaml", "compose.gpu.yaml",
-        "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
+        "compose.externo.yaml", "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
         "finetuning/output/.gitkeep"]
 BACKEND = [f for f in FILES if f.startswith("backend/")]
 FRONTEND = [f for f in FILES if f.startswith("frontend/") and f != "frontend/package-lock.json"]
@@ -730,6 +803,11 @@ suficiente: "pode ficar muito lento ou não carregar". Modelo:
 Se a pessoa informar outro modelo, aceite e avise que ele precisa ter a etiqueta *tools* no Ollama e não foi testado
 com o projeto.
 
+Se o recomendado for `qwen3:4b` ou `qwen3:1.7b`, acrescente depois das opções, sem transformar em opção: "Sem GPU
+boa, o chat pode rodar depois numa GPU externa alugada por hora (por exemplo, a GPU hosting da Hostinger, a partir
+de cerca de R$ 2,31/h): o projeto já vem pronto para isso, veja 'GPU externa' no README ao final." A instalação
+continua com o modelo local escolhido.
+
 Se a memória do Docker no Windows for menor que a necessária e a RAM do computador comportar o modelo, acrescente
 esta orientação, sem alterar nada por conta própria: "Para dar mais memória ao Docker, crie
 `%UserProfile%\\.wslconfig` com as linhas `[wsl2]` e `memory=12GB`, rode `wsl --shutdown` e abra o Docker Desktop."
@@ -737,6 +815,15 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
 ### 5. Decisões automáticas (não pergunte)
 
 - **GPU:** ligada se o passo 3 confirmou a GPU.
+- **Fine-tuning (onde treinar o LoRA):**
+
+  | Situação | Decisão |
+  |---|---|
+  | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
+  | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
+  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+
+  O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.
 - **Git:** se a pasta não for um repositório, `git init -b main`. Acrescente `/<pasta de prompts>/` em
   `.git/info/exclude`.
@@ -767,7 +854,7 @@ CHAT_MODEL=<modelo escolhido>
 ```
 
 Se a porta não for `8091`, acrescente `APP_PORT=<porta>`. Com GPU, acrescente `COMPOSE_FILE=compose.yaml;compose.gpu.yaml` no
-Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de menos de 12 GB, acrescente
+Windows ou `COMPOSE_FILE=compose.yaml:compose.gpu.yaml` no Linux. Com GPU de 8 GB a menos de 12 GB, acrescente
 `FINETUNE_BASE_MODEL=unsloth/Qwen3-4B`.
 
 Crie `docs/configuracao.md`, trocando os valores:
@@ -781,7 +868,7 @@ Decisões tomadas ao criar o projeto. Os segredos ficam só no `.env`.
 |---|---|
 | Modelo de chat | <modelo> |
 | GPU NVIDIA | <nome e memória, ou "não usada"> |
-| Fine-tuning | <"na GPU" ou "sem GPU: pula o treino"> |
+| Fine-tuning (LoRA) | <"neste computador, base unsloth/Qwen3-8B", "neste computador, base unsloth/Qwen3-4B" ou "GPU externa recomendada (treinar_remoto.sh) ou pendente"> |
 | Memória para o Docker | <memória> GB |
 | Endereço | http://localhost:<porta> |
 `````
@@ -968,7 +1055,7 @@ treino e o script que cria o modelo treinado no Ollama. O dataset e a avaliaçã
 (`python -m app.finetune`).
 
 {RULES}
-Depois, deixe `finetuning/criar_modelo.sh` executável: `chmod +x finetuning/criar_modelo.sh`.
+Depois, deixe os scripts executáveis: `chmod +x finetuning/criar_modelo.sh finetuning/treinar_remoto.sh`.
 
 {blocks(FINETUNE)}
 ## Verificação
@@ -989,7 +1076,8 @@ Depois, deixe `finetuning/criar_modelo.sh` executável: `chmod +x finetuning/cri
    docker compose exec ollama sh /finetuning/criar_modelo.sh <modelo de docs/configuracao.md> celke-agro
    docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
    ```
-   Sem GPU, registre "treino LoRA pendente: precisa de GPU NVIDIA" no relatório e siga.
+   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com ./finetuning/treinar_remoto.sh
+   usuario@ip (README, GPU externa)" no relatório e siga.
 
 Mostre ao usuário os percentuais de acerto de antes e de depois.
 
@@ -997,15 +1085,16 @@ Mostre ao usuário os percentuais de acerto de antes e de depois.
 
 ```bash
 git add finetuning
-git update-index --chmod=+x finetuning/criar_modelo.sh
+git update-index --chmod=+x finetuning/criar_modelo.sh finetuning/treinar_remoto.sh
 git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 ```
 
 ## Orientação ao terminar
 
 > **Pronto:** o fine-tuning está preparado. <Com GPU: "O modelo treinado `celke-agro` acertou <depois>% das perguntas
-> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas; o
-> treino roda num computador com GPU NVIDIA, com os comandos do README."> Continue sem fazer nada.
+> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
+> treinar, alugue uma GPU por hora (por exemplo, na Hostinger) e rode `./finetuning/treinar_remoto.sh root@<ip>`:
+> veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
 F05 = """# Integração ponta a ponta
@@ -1117,7 +1206,8 @@ Mostre, trocando os marcadores:
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.
 >
-> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)".
+> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)". Sem GPU boa, use uma
+> GPU externa alugada por hora, para o chat e para o treino: veja "GPU externa (Hostinger e similares)".
 >
 > **Enviar ao GitHub (opcional):** crie um repositório vazio e rode `git remote add origin <url>` e
 > `git push -u origin main homolog`.
@@ -1143,7 +1233,7 @@ durante a execução.
 | Git | Se faltar, o prompt mostra como instalar |
 | Internet | Para baixar imagens, o modelo e os dados públicos |
 | Disco | Cerca de 10 GB mais o modelo (mais 25 GB para o fine-tuning, com GPU) |
-| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA |
+| GPU NVIDIA (opcional) | Acelera o chat e é necessária para o treino LoRA; sem ela, dá para alugar uma por hora (GPU externa) |
 
 **Não instale o Ollama, o Python nem o Node.** Tudo roda no Docker.
 
@@ -1316,6 +1406,71 @@ print("iguais", ok, "diferentes", bad, "sobrando", sorted(seen - set(files)))
 sys.exit(1 if bad or seen - set(files) else 0)
 ``````
 
+`docs/prompts/00-preparacao-e-modelo.md`:
+
+``````markdown
+# Etapa 0 — Preparação do computador e escolha do modelo de IA
+
+## Contexto
+
+Antes de criar o projeto, confira o computador e escolha o modelo de IA que cabe nele. Esta é a única etapa com
+pergunta ao usuário: execute-a na sessão principal do agente. Não instale o Ollama no computador: ele roda no Docker.
+
+## 1. Ferramentas
+
+Confira `git --version`, `docker --version`, `docker compose version` e `docker info`. Se algo faltar, pare e diga
+como instalar (Docker Desktop com WSL 2 no Windows e no macOS; Docker Engine com o plugin Compose no Linux).
+
+## 2. Capacidade do computador
+
+Sem perguntar nada: RAM, processadores e disco livre da pasta (`free -g`, `nproc` e `df -BG .` no Linux;
+`Get-CimInstance` e `Get-PSDrive` no Windows; `sysctl` e `df -g` no macOS); a memória e os processadores que o Docker
+enxerga (`docker info --format "{{.MemTotal}} {{.NCPU}}"`), que é o que vale; a GPU
+(`nvidia-smi --query-gpu=name,memory.total --format=csv,noheader`) e se o Docker a alcança
+(`docker run --rm --gpus all --entrypoint nvidia-smi ollama/ollama:0.40.13 -L`). AMD, Intel e Apple Silicon contam
+como sem GPU: o projeto só liga GPU NVIDIA.
+
+## 3. Modelo do chat
+
+Modelos do Ollama da família `qwen3`, todos com ferramentas (tool calling). Use a primeira linha que couber:
+
+| Situação | Recomendado | Referência |
+|---|---|---|
+| GPU com 24 GB ou mais | `qwen3:30b` | estimativa |
+| GPU com 12 GB ou mais | `qwen3:14b` | RTX 3060: 31 tokens/s |
+| GPU com 6 GB ou mais | `qwen3:8b` | RTX 3060: 54 tokens/s |
+| Sem GPU, Docker com 12 GB ou mais | `qwen3:8b` | Ryzen 7 5700: 7,9 tokens/s, pergunta com ferramentas em cerca de 1 minuto |
+| Sem GPU, Docker com 6,5 GB ou mais | `qwen3:4b` | erra mais a escolha das ferramentas |
+| Qualquer outro caso | `qwen3:1.7b` | erra muito a escolha das ferramentas |
+
+Confira o disco: pelo menos 10 GB mais o download do modelo (e mais 25 GB com GPU NVIDIA, para o fine-tuning).
+Pergunte uma vez, com três opções: a recomendada, a inferior e a superior (com o risco, se a memória não bastar).
+Se o recomendado for `qwen3:4b` ou menor, avise que o chat pode rodar depois numa **GPU externa** alugada por hora
+(por exemplo, a GPU hosting da Hostinger): o projeto já vem pronto para isso.
+
+## 4. Onde treinar (decisão automática)
+
+| Situação | Fine-tuning LoRA |
+|---|---|
+| GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
+| GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (`FINETUNE_BASE_MODEL` no `.env`) |
+| Qualquer outro caso | GPU externa (`./finetuning/treinar_remoto.sh`) ou pendente |
+
+O modelo de previsão da safra não precisa de GPU: treina aqui, em segundos.
+
+## 5. Arquivos
+
+- `.env` com `POSTGRES_PASSWORD` (48 caracteres hexadecimais aleatórios) e `CHAT_MODEL`; `APP_PORT` se a 8091 estiver
+  ocupada; `COMPOSE_FILE` com o `compose.gpu.yaml` se houver GPU; `FINETUNE_BASE_MODEL` se for o 4B.
+- `docs/configuracao.md` com o modelo, a GPU, onde treinar, a memória do Docker e o endereço.
+- `LICENSE.txt` MIT com o nome do Git e o ano. Se nome ou e-mail do Git faltarem, pergunte.
+- Se a pasta não for um repositório, `git init -b main`.
+
+## Verificação
+
+O `.env` tem as variáveis (sem mostrar a senha), e `docs/configuracao.md` e `LICENSE.txt` existem sem marcadores.
+``````
+
 `docs/prompts/01-estrutura-e-docker.md`:
 
 ``````markdown
@@ -1365,6 +1520,14 @@ RAIN_COLLECT_HOUR=6                     MONTHLY_COLLECT_DAY=1
 DISCOVERY_MAX_Q=0.10                    DISCOVERY_MIN_ABS_R=0.4        DISCOVERY_MIN_YEARS=8
 ALERT_RAIN_DEFICIT_PCT=25               ALERT_DRY_SPELL_DAYS=10
 ```
+
+`compose.externo.yaml` (GPU externa, por exemplo a GPU hosting da Hostinger): o serviço `gpu-tunnel` (`alpine:3.22`,
+instala o `openssh-client` e abre `ssh -N -L 0.0.0.0:11434:127.0.0.1:11434` até `GPU_SSH`, na porta `GPU_SSH_PORT`,
+com a chave `GPU_SSH_KEY` montada só para leitura e copiada com permissão 600; `StrictHostKeyChecking=accept-new` com
+o `known_hosts` num volume; healthcheck `nc -z 127.0.0.1 11434`); `ollama` e `ollama-init` só no profile
+`ollama-local`; backend e `finetune-tools` com `OLLAMA_URL=http://gpu-tunnel:11434` e `depends_on: !reset`. O túnel
+fica na rede do Docker: a porta do Ollama não abre na internet nem na rede local. Os scripts de inicialização só
+esperam o `ollama-init` se ele estiver em `docker compose config --services`.
 
 `compose.gpu.yaml`: no `ollama`, `deploy.resources.reservations.devices` com `driver: nvidia`, `count: all`,
 `capabilities: [gpu]`. `compose.dev.yaml`: publica o backend em `127.0.0.1:8000` (só para o Vite em desenvolvimento).
@@ -1859,6 +2022,13 @@ Linha de comando no container do backend: `python -m app.finetune exportar --sai
 - `criar_modelo.sh` (roda no container do Ollama): pega o `Modelfile` do modelo base (`ollama show --modelfile`),
   troca o `FROM` pelo GGUF treinado e cria `celke-agro`, mantendo o template de ferramentas do Qwen3.
 
+- `treinar_remoto.sh` (GPU externa, rodado no Linux, no macOS ou no Git Bash): `./finetuning/treinar_remoto.sh
+  usuario@ip [porta]`, com `GPU_SSH_KEY` e as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
+  `treinar.py`, `requirements.txt` e `treino.jsonl` para `~/celke-finetune`, instala os pacotes do sistema que faltarem
+  (com `sudo` se não for root), cria um ambiente Python isolado, instala as dependências fixas, treina e traz
+  `celke-agro.gguf` e `treino.json` para `finetuning/output/`. Com `CRIAR_NO_SERVIDOR=1`, cria o `celke-agro` também
+  no Ollama do servidor. Termina lembrando de apagar a instância, cobrada por hora.
+
 ## Compose
 
 - `finetune-tools` (profile `finetune`): imagem do backend com `entrypoint: ["python", "-m", "app.finetune"]`, o mesmo
@@ -1892,7 +2062,15 @@ docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro   # o "depois"
 ```
 
-Sem GPU, registre o treino como pendência e siga: o projeto funciona com o modelo base.
+Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB):
+
+```bash
+./finetuning/treinar_remoto.sh root@<ip>
+docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
+docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
+```
+
+Sem GPU local nem externa, registre o treino como pendência e siga: o projeto funciona com o modelo base.
 ``````
 
 `docs/prompts/07-integracao.md`:
@@ -1995,7 +2173,7 @@ avisar. Backend Python com FastAPI, frontend React com o layout `@celke/kole-rea
 - Docker com o Docker Compose em execução (`docker compose version`).
 - Git.
 - Internet: as etapas baixam imagens Docker, pacotes do npm e do PyPI, o modelo (de 5 a 9 GB) e os dados públicos.
-- 16 GB de RAM (modelo na CPU) ou GPU NVIDIA.
+- 16 GB de RAM (modelo na CPU), GPU NVIDIA ou uma GPU externa alugada por hora (a etapa 0 recomenda).
 
 ## Como usar
 
@@ -2015,12 +2193,13 @@ nova do agente, na pasta do projeto. Siga a **Verificação** de cada prompt ant
 
 | Ordem | Prompt | Resultado |
 |---|---|---|
+| 0 | [Preparação e escolha do modelo](00-preparacao-e-modelo.md) | Capacidade do computador conferida, modelo do chat e lugar do treino escolhidos, `.env` e licença |
 | 1 | [Estrutura inicial e Docker](01-estrutura-e-docker.md) | Pastas, `compose.yaml` com Ollama e PostgreSQL, download do modelo, `.env.example`, scripts |
 | 2 | [Coleta de dados e análises](02-coleta-e-analises.md) | API FastAPI, clientes do Open-Meteo e do IBGE, cadastro de municípios, coletas com registro, agendador, análises com estatística e gráficos, testes |
 | 3 | [Treinar o modelo de previsão da safra](03-previsao-treinada.md) | Regressão treinada com as safras, validação deixando uma de fora, comparação com a tendência, cenários, histórico de treinos |
 | 4 | [IA com ferramentas: responder, descobrir e avisar](04-ia-com-ferramentas.md) | Chat com tool calling (10 ferramentas), conversas, descobertas com filtro estatístico, alertas, explicação da IA nos treinos |
 | 5 | [Frontend React com o Kole](05-frontend-kole.md) | Análises, Previsão, Chat, Descobertas, Alertas, Municípios e Status com o `@celke/kole-react` e os gráficos dele |
-| 6 | [Fine-tuning do modelo de linguagem](06-fine-tuning.md) | Dataset de perguntas → ferramentas, avaliação antes e depois, treino LoRA na GPU, modelo `celke-agro` no Ollama |
+| 6 | [Fine-tuning do modelo de linguagem](06-fine-tuning.md) | Dataset de perguntas → ferramentas, avaliação antes e depois, treino LoRA na GPU local ou externa, modelo `celke-agro` no Ollama |
 | 7 | [Integração ponta a ponta](07-integracao.md) | Fluxo completo com as APIs públicas e o modelo real, persistência |
 | 8 | [Documentação e guia para agentes](08-documentacao.md) | `README.md` completo e `CLAUDE.md` |
 
@@ -2084,7 +2263,12 @@ Você é o **coordenador**: não execute as etapas no seu próprio contexto.
 4. **Docker**: confira `docker compose version` e `docker info`. Se o Docker não estiver rodando, pare e peça para a
    pessoa iniciá-lo.
 
-### Para cada etapa
+### Etapa 0
+
+Execute `00-preparacao-e-modelo.md` você mesmo, nesta sessão, porque ela conversa com o usuário (capacidade do
+computador, modelo de IA, onde treinar). As demais etapas usam os valores de `docs/configuracao.md`.
+
+### Para cada etapa (1 em diante)
 
 1. Leia o arquivo da etapa e passe o conteúdo **inteiro** a um subagente novo, com esta instrução no início: "Você
    está na raiz do projeto Celke Treinar IA Agro. Execute o prompt abaixo por completo, incluindo a seção
@@ -2151,7 +2335,8 @@ Mostre, trocando os marcadores:
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.
 >
-> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)".
+> **Fine-tuning:** os comandos estão no README, em "Fine-tuning do modelo de linguagem (GPU)". Sem GPU boa, use uma
+> GPU externa alugada por hora, para o chat e para o treino: veja "GPU externa (Hostinger e similares)".
 >
 > **Enviar ao GitHub (opcional):** crie um repositório vazio e rode `git remote add origin <url>` e
 > `git push -u origin main homolog`.

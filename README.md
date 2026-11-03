@@ -11,6 +11,7 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 - [Como executar (quem baixou do GitHub)](#como-executar-quem-baixou-do-github)
 - [Os dois treinamentos](#os-dois-treinamentos)
 - [Fine-tuning do modelo de linguagem (GPU)](#fine-tuning-do-modelo-de-linguagem-gpu)
+- [GPU externa (Hostinger e similares)](#gpu-externa-hostinger-e-similares)
 - [Funcionalidades](#funcionalidades)
 - [Arquitetura](#arquitetura)
 - [Fontes de dados](#fontes-de-dados)
@@ -113,6 +114,11 @@ soja, a chuva quase não melhorou a previsão (7%), e a tela diz isso.
 dia, ficam no PostgreSQL e chegam por ferramentas: um dado novo já vale na próxima pergunta. **As contas ficam no
 código** (somas, médias, tendência, correlação, p-valor, regressão): num teste, o `qwen3:8b` errou uma média simples.
 
+**Por que não há modelo de embeddings:** embeddings servem para busca por semelhança de texto (RAG), como a busca nos
+trechos de PDFs do Celke IA Local. Aqui nenhum dos treinamentos precisa deles: a previsão é uma regressão sobre
+números, o LoRA treina os pesos do próprio Qwen3 com texto, e o chat consulta as tabelas por ferramentas. Por isso a
+página de Status não mostra modelo de embeddings: um modelo a mais só gastaria download e memória.
+
 Além de prever, a IA tem três papéis com os dados:
 
 | Papel | Onde | O que faz |
@@ -159,6 +165,60 @@ exatamente o que o fine-tuning ensina:
 
 O que esperar: o treino ensina comportamento, não números. O ganho é maior em modelos menores: com GPU de 8 GB, use
 `FINETUNE_BASE_MODEL=unsloth/Qwen3-4B` e `qwen3:4b` como base no passo 4, e compare com o `qwen3:8b` sem treino.
+
+## GPU externa (Hostinger e similares)
+
+Sem GPU boa no computador, dá para alugar uma por hora, por exemplo uma
+[instância de GPU da Hostinger](https://www.hostinger.com/br/gpu-hosting) (RTX 4090 com 24 GB a partir de R$ 2,31/h,
+L40S com 48 GB a partir de R$ 5,27/h, com acesso root por SSH e o app Ollama pronto). Qualquer servidor Linux com GPU
+NVIDIA, SSH e o Ollama serve. Há dois usos, independentes:
+
+| Uso | O que roda no servidor | O que continua no seu computador |
+|---|---|---|
+| **Modelo do chat** | Ollama com o `CHAT_MODEL` (ex.: `qwen3:14b`, que não roda bem na CPU) | Frontend, backend, banco, coletas e o treino da previsão |
+| **Fine-tuning** | O treino LoRA (de 20 a 60 minutos) | Tudo; o modelo treinado volta para `finetuning/output/` |
+
+**Segurança:** o backend fala com o Ollama do servidor por um **túnel SSH** aberto pelo próprio Compose (serviço
+`gpu-tunnel`, dentro da rede do Docker). A porta do Ollama não precisa ficar aberta na internet; se o painel do
+provedor oferecer firewall, deixe aberta só a porta SSH. Use chave SSH, não senha.
+
+**Custo:** a cobrança corre enquanto a instância existe. Desligue (ou apague) no painel quando terminar; apagar perde
+os arquivos que não estiverem no armazenamento persistente.
+
+### Modelo do chat na GPU externa
+
+1. No painel, crie a instância com o app Ollama e cadastre a sua chave SSH pública (`~/.ssh/id_ed25519.pub`; sem
+   chave, crie com `ssh-keygen -t ed25519`).
+2. Baixe o modelo no servidor: `ssh root@<ip> ollama pull qwen3:14b`.
+3. No `.env`:
+   ```dotenv
+   COMPOSE_FILE=compose.yaml;compose.externo.yaml   # no Linux e no macOS, separe com ":"
+   GPU_SSH=root@<ip>
+   GPU_SSH_KEY=~/.ssh/id_ed25519
+   CHAT_MODEL=qwen3:14b
+   ```
+4. Rode o script de inicialização. O Ollama local não sobe; a página **Status e coletas** mostra "Ollama (GPU
+   externa, pelo túnel SSH)". Se aparecer desconectado: `docker compose logs gpu-tunnel`.
+
+Para voltar ao modelo local, tire as linhas do `.env` e rode o script de novo.
+
+### Fine-tuning na GPU externa
+
+Com o dataset gerado (`docker compose --profile finetune run --rm finetune-tools exportar`), na raiz do projeto
+(Linux, macOS ou **Git Bash** no Windows):
+
+```bash
+./finetuning/treinar_remoto.sh root@<ip>
+```
+
+O script confere a GPU do servidor, envia o dataset e o `treinar.py`, instala as dependências fixas num ambiente
+Python isolado (a primeira vez baixa cerca de 10 GB), treina e traz `celke-agro.gguf` e `treino.json` para
+`finetuning/output/`. Depois, crie o modelo e meça o "depois" como no passo 4 e 5 de
+[Fine-tuning](#fine-tuning-do-modelo-de-linguagem-gpu). Com o chat também na GPU externa, rode com
+`CRIAR_NO_SERVIDOR=1` para criar o `celke-agro` direto no Ollama do servidor e use `CHAT_MODEL=celke-agro`.
+
+Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o `unsloth/Qwen3-14B`
+(`FINETUNE_BASE_MODEL`), usando `qwen3:14b` como base no `criar_modelo.sh`.
 
 ## Funcionalidades
 
@@ -207,6 +267,7 @@ Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI 
 | `ollama-init` | Baixa o modelo se faltar e termina | nenhuma |
 | `postgres` | Todos os dados | nenhuma |
 | `finetune-tools`, `finetune-train` | Dataset, avaliação e treino do fine-tuning (profile `finetune`, só quando você roda) | nenhuma |
+| `gpu-tunnel` | Túnel SSH até a GPU externa (só com `compose.externo.yaml`, no lugar do `ollama`) | nenhuma |
 
 O backend é dividido em `api/` (rotas finas) → `services/` (regras) → `repositories/` (SQL). O ciclo do chat:
 
@@ -257,7 +318,7 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 |---|---|---|
 | `APP_PORT` | `8091` | Porta do navegador |
 | `APP_BIND` | `127.0.0.1` | `0.0.0.0` abre na rede local (veja [Segurança](#segurança-e-privacidade)) |
-| `COMPOSE_FILE` | — | Liga a GPU NVIDIA (`compose.yaml;compose.gpu.yaml` no Windows, `:` no Linux) |
+| `COMPOSE_FILE` | — | GPU NVIDIA local (`compose.yaml;compose.gpu.yaml`) ou GPU externa (`compose.yaml;compose.externo.yaml`); no Linux e no macOS, separe com `:` |
 | `POSTGRES_PASSWORD` | — | Senha do banco (obrigatória; gerada pelos scripts) |
 | `POSTGRES_DB` / `POSTGRES_USER` | `celke_agro` / `celke` | Banco e usuário |
 | `CHAT_MODEL` | `qwen3:8b` | Modelo do Ollama; precisa aceitar ferramentas |
@@ -280,6 +341,9 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 | `DISCOVERY_MIN_YEARS` | `8` | Safras mínimas para testar uma relação |
 | `ALERT_RAIN_DEFICIT_PCT` | `25` | Chuva da safra abaixo da média que gera alerta (%) |
 | `ALERT_DRY_SPELL_DAYS` | `10` | Dias seguidos sem chuva que geram alerta |
+| `GPU_SSH` | — | Usuário e IP do servidor de GPU externa (`root@203.0.113.10`), com `compose.externo.yaml` |
+| `GPU_SSH_PORT` | `22` | Porta SSH do servidor |
+| `GPU_SSH_KEY` | `~/.ssh/id_ed25519` | Chave privada que o servidor aceita |
 | `FINETUNE_BASE_MODEL` | `unsloth/Qwen3-8B` | Modelo base do fine-tuning (Hugging Face) |
 | `FINETUNE_EPOCHS` | `2` | Passadas pelo dataset no fine-tuning |
 | `FINETUNE_MAX_SEQ_LENGTH` | `4096` | Tamanho máximo de cada exemplo de treino, em tokens |
@@ -320,6 +384,7 @@ A documentação interativa da API fica em http://localhost:8091/api/docs.
 | Sem GPU, 16 GB de RAM | `qwen3:8b` | Medido num Ryzen 7 5700: 7,9 tokens/s; pergunta com ferramentas em cerca de 1 minuto; relatório de descobertas em cerca de 3 minutos |
 | GPU NVIDIA de 8 GB | `qwen3:8b` | Cabe inteiro na GPU |
 | GPU NVIDIA de 12 GB (ex.: RTX 3060) | `qwen3:14b` | Escolhe ferramentas e interpreta melhor; o melhor para gravar o tutorial |
+| Computador fraco ou sem GPU, mas com internet | `qwen3:14b` na [GPU externa](#gpu-externa-hostinger-e-similares) | Cobrado por hora; o resto do projeto continua local |
 | Pouca memória | `qwen3:4b` | Mais rápido, erra mais a escolha das ferramentas |
 
 O modelo precisa aceitar ferramentas (tool calling): no site do Ollama, a etiqueta **tools**. A página **Status e
@@ -337,6 +402,8 @@ Para trocar: mude `CHAT_MODEL` no `.env` e rode o script de inicialização de n
 | Município parado em "Coletando" depois de reiniciar | A coleta foi interrompida e fica como erro; clique em **Coletar chuva agora** |
 | Chat lento ou "demorou demais para responder" | Primeira pergunta carrega o modelo. Na CPU, use `qwen3:8b` ou menor; com GPU, ligue o `compose.gpu.yaml` |
 | "O modelo não aceita ferramentas" | Troque `CHAT_MODEL` por um modelo com a etiqueta tools |
+| "GPU externa desconectada" no Status | Veja `docker compose logs gpu-tunnel`: IP, porta, chave ou a instância desligada no painel |
+| Treino remoto para em "Conferindo a GPU" | O servidor não aceitou a chave SSH ou não tem driver NVIDIA; confira o tipo da instância |
 | Página não abre na porta 8091 | Outra aplicação usa a porta: mude `APP_PORT` no `.env` |
 
 ## Segurança e privacidade
@@ -374,7 +441,9 @@ frontend/
   src/pages/          Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e coletas
   src/components/     ChartView (especificação do backend → gráfico do Kole)
   src/services/       cliente da API e leitor do streaming
-finetuning/           treino LoRA na GPU (Dockerfile, treinar.py) e criar_modelo.sh para o Ollama
+finetuning/           treino LoRA na GPU (Dockerfile, treinar.py), treinar_remoto.sh (GPU externa) e
+                      criar_modelo.sh para o Ollama
+compose.externo.yaml  modelo do chat na GPU externa, pelo túnel SSH
 docs/
   prompts/            as etapas do tutorial, em texto
   prompts-iniciais/   prompts que recriam o projeto do zero com o conteúdo exato dos arquivos (gerados)

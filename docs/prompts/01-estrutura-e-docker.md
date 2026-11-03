@@ -45,6 +45,14 @@ DISCOVERY_MAX_Q=0.10                    DISCOVERY_MIN_ABS_R=0.4        DISCOVERY
 ALERT_RAIN_DEFICIT_PCT=25               ALERT_DRY_SPELL_DAYS=10
 ```
 
+`compose.externo.yaml` (GPU externa, por exemplo a GPU hosting da Hostinger): o serviço `gpu-tunnel` (`alpine:3.22`,
+instala o `openssh-client` e abre `ssh -N -L 0.0.0.0:11434:127.0.0.1:11434` até `GPU_SSH`, na porta `GPU_SSH_PORT`,
+com a chave `GPU_SSH_KEY` montada só para leitura e copiada com permissão 600; `StrictHostKeyChecking=accept-new` com
+o `known_hosts` num volume; healthcheck `nc -z 127.0.0.1 11434`); `ollama` e `ollama-init` só no profile
+`ollama-local`; backend e `finetune-tools` com `OLLAMA_URL=http://gpu-tunnel:11434` e `depends_on: !reset`. O túnel
+fica na rede do Docker: a porta do Ollama não abre na internet nem na rede local. Os scripts de inicialização só
+esperam o `ollama-init` se ele estiver em `docker compose config --services`.
+
 `compose.gpu.yaml`: no `ollama`, `deploy.resources.reservations.devices` com `driver: nvidia`, `count: all`,
 `capabilities: [gpu]`. `compose.dev.yaml`: publica o backend em `127.0.0.1:8000` (só para o Vite em desenvolvimento).
 

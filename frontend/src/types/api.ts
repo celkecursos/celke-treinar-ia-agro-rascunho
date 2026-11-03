@@ -207,6 +207,7 @@ export interface SystemStatus {
   ollama: {
     online: boolean;
     chat_model: { name: string; installed: boolean; tools: boolean | null };
+    location: 'local' | 'externo';
     error: string | null;
   };
   database: { online: boolean; error: string | null };
