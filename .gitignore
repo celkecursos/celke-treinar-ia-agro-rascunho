@@ -1,0 +1,16 @@
+.env
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.log
+.DS_Store
+# fine-tuning: dataset gerado, modelos baixados e treinados (vários GB)
+finetuning/data/*
+!finetuning/data/.gitkeep
+finetuning/output/*
+!finetuning/output/.gitkeep
+finetuning/cache/

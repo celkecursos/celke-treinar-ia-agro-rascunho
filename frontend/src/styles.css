@@ -1,0 +1,308 @@
+/* Ajustes do app sobre o Kole: só tokens do tema (tokens.css), sem cores fixas. */
+
+/* Espaço igual entre os blocos da página (cabeçalho, alertas, indicadores, cards). */
+.app-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-lista-servicos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-lista-servicos li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: var(--hairline) solid var(--border);
+  color: var(--t2);
+}
+
+.app-lista-servicos li:last-child {
+  border-bottom: 0;
+}
+
+.app-lista-servicos code {
+  color: var(--t3);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * O chat ocupa exatamente a área de conteúdo da Estrutura: cabeçalho e
+ * documentos ficam sempre visíveis e só a Conversa rola.
+ */
+.lp-content:has(> .lp-content-inner > .app-chat) {
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-content-inner:has(> .app-chat) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-chat > * {
+  flex: none;
+}
+
+.app-chat > .app-chat-conversa {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  /* janela muito baixa: a página volta a rolar em vez de esmagar a conversa */
+  min-height: 16rem;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.app-chat-conversa > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Título da conversa em até 2 linhas; sem espaço ao lado dele, os botões descem para a linha de baixo. */
+.app-chat-cabecalho .lp-cab-topo {
+  flex-wrap: wrap;
+}
+
+.app-chat-cabecalho .lp-cab-titulos {
+  flex: 1 1 14rem;
+}
+
+.app-chat-cabecalho .lp-cab-titulo {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .app-chat-cabecalho.lp-cab {
+    padding: 1rem;
+  }
+
+  .app-chat-cabecalho .lp-cab-topo {
+    gap: 0.75rem;
+  }
+
+  .app-chat-cabecalho .lp-cab-tile {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .app-chat-cabecalho .lp-cab-titulos {
+    flex-basis: 0;
+  }
+
+  .app-chat-cabecalho .lp-cab-titulo {
+    font-size: var(--fs-corpo);
+    font-weight: 700;
+  }
+
+  .app-chat-cabecalho .lp-cab-acoes {
+    flex-basis: 100%;
+  }
+}
+
+.app-campo-opcoes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.app-avatar-ia {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--pri-bg);
+  color: var(--pri);
+  font-size: var(--fs-caption);
+  font-weight: 800;
+}
+
+.app-pensando {
+  color: var(--t3);
+  font-style: italic;
+}
+
+.app-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.app-filtros > :first-child {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.app-graficos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 1rem;
+}
+
+.app-grafico-largo {
+  grid-column: 1 / -1;
+}
+
+.app-cadastro {
+  display: grid;
+  grid-template-columns: minmax(10rem, 16rem) minmax(12rem, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+@media (max-width: 40rem) {
+  .app-cadastro {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-situacao {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+}
+
+.app-situacao small {
+  color: var(--t3);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
+.app-notas {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  color: var(--t2);
+}
+
+.app-texto {
+  margin: 0;
+  color: var(--t2);
+  line-height: 1.55;
+}
+
+.app-subtitulo {
+  margin: 1rem 0 0.5rem;
+  font-size: var(--fs-corpo);
+  color: var(--t2);
+}
+
+.app-perguntas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.app-perguntas li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: var(--hairline) solid var(--border);
+  color: var(--t2);
+}
+
+.app-perguntas li:last-child {
+  border-bottom: 0;
+}
+
+.app-descoberta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-descoberta-texto {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app-fato {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: var(--r-card);
+  background: var(--surf-2);
+  color: var(--t2);
+  line-height: 1.55;
+}
+
+.app-hipotese {
+  font-style: italic;
+}
+
+.app-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.app-fontes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.app-dados {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.375rem 0.75rem;
+  margin: 0;
+  color: var(--t2);
+}
+
+.app-dados dt {
+  color: var(--t3);
+  font-size: var(--fs-caption);
+}
+
+.app-dados dd {
+  margin: 0;
+}
+
+.app-exemplos {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+}
+
+.app-resposta-extra {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.app-grafico-chat {
+  min-width: min(100%, 30rem);
+}

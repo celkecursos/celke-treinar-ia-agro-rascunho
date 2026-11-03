@@ -1,0 +1,2 @@
+# Scripts de shell sempre com LF, mesmo em clones no Windows: com CRLF o sh não os executa.
+*.sh text eol=lf

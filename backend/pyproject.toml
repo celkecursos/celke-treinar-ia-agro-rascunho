@@ -1,0 +1,20 @@
+[project]
+name = "celke-treinar-ia-agro-backend"
+version = "1.0.0"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: usa o Ollama, as APIs públicas e o PostgreSQL de verdade (rode com a stack no ar)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# o tamanho da linha fica com o ruff format; textos longos de mensagens podem passar
+ignore = ["E501"]

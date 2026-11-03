@@ -1,0 +1,10 @@
+# Unsloth: fine-tuning LoRA com 4 bits, cabe numa GPU de 12 GB. As demais versões são as que o pip resolve para ele,
+# fixadas para o treino ser reproduzível.
+unsloth==2026.11.1
+unsloth_zoo==2026.11.1
+torch==2.14.1
+transformers==5.17.0
+trl==1.15.0
+peft==0.21.2
+datasets==4.8.5
+bitsandbytes==0.50.2

@@ -1,0 +1,6 @@
+# Desenvolvimento do frontend com o Vite (npm run dev): publica a API em 127.0.0.1:8000.
+# docker compose -f compose.yaml -f compose.dev.yaml up -d
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
