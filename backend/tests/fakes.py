@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from app.core.domain import CROPS, LSPA_PRODUCTS
 from app.core.errors import AppError
 from app.repositories.crop_repository import CropEstimate, CropYear
-from app.services.ollama_service import ChatChunk
+from app.services.ollama_service import ChatChunk, InstalledModel, PullProgress, same_model
 
 # mm por dia de chuva, por mês: chuvoso de outubro a março, seco no meio do ano
 MONTH_BASE = {1: 9, 2: 8, 3: 7, 4: 4, 5: 1.5, 6: 0.3, 7: 0.1, 8: 0.3, 9: 2, 10: 5, 11: 8, 12: 9}
@@ -120,6 +120,8 @@ class FakeIbge:
 class FakeModel:
     """Chat roteirizado: cada item de `rounds` é uma rodada (lista de pedaços). Depois do roteiro, responde texto."""
 
+    name = "modelo-teste"
+
     def __init__(self, rounds: list[list[ChatChunk]] | None = None, answer: str = "Resposta de teste."):
         self.rounds = list(rounds or [])
         self.answer = answer
@@ -153,6 +155,55 @@ class FakeModel:
                 "proximas_perguntas": ["Pergunta 1?", "Pergunta 2?"],
             }
         return {"explicacao": "Explicação de teste."}  # alertas e treino da previsão
+
+
+class FakeGpu:
+    """O túnel da GPU externa visto pelo `ModelSelector`: cadastrado, conectado e a mensagem."""
+
+    def __init__(self, configured: bool = True, connected: bool = True, message: str | None = None):
+        self.configured = configured
+        self.connected = connected
+        self.message = message
+
+
+class FakeOllamaServer:
+    """Um servidor Ollama falso para o `ModelSelector`: modelos instalados, capacidades, download e erro de conexão."""
+
+    def __init__(self, location: str, models: dict[str, list[str]] | None = None):
+        self.location = location
+        # nome do modelo -> capacidades
+        self.models = dict(models if models is not None else {"qwen3:8b": ["completion", "tools"]})
+        self.error: AppError | None = None
+        self.pull_error: AppError | None = None
+        self.chat_calls: list[str] = []
+
+    def installed_models(self) -> list[InstalledModel]:
+        if self.error:
+            raise self.error
+        return [InstalledModel(name, 5_200_000_000, "8.2B") for name in self.models]
+
+    def is_installed(self, model, installed=None) -> bool:
+        return any(same_model(m.name, model) for m in (installed or self.installed_models()))
+
+    def capabilities(self, model) -> list[str]:
+        return self.models[model]
+
+    def pull(self, model) -> Iterator[PullProgress]:
+        yield PullProgress("pulling manifest")
+        yield PullProgress("pulling abc", "sha256:abc", 50, 100)
+        if self.pull_error:
+            raise self.pull_error
+        yield PullProgress("pulling abc", "sha256:abc", 100, 100)
+        yield PullProgress("success")
+        self.models[model] = ["completion", "tools"]
+
+    def chat_stream(self, model, messages, tools=None) -> Iterator[ChatChunk]:
+        self.chat_calls.append(model)
+        yield ChatChunk("content", f"{self.location}:{model}")
+
+    def chat_json(self, model, messages, schema) -> dict:
+        self.chat_calls.append(model)
+        return {}
 
 
 def tool_call(name: str, **arguments) -> ChatChunk:

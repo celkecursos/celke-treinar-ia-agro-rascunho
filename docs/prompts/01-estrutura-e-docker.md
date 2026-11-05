@@ -23,7 +23,7 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 | Serviço | Imagem / build | Detalhes |
 |---|---|---|
 | `frontend` | build `./frontend`, target `runtime` | Única porta publicada: `"${APP_BIND:-127.0.0.1}:${APP_PORT:-8091}:80"`; depende do backend saudável |
-| `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; depende de `postgres` e `ollama` saudáveis |
+| `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; volume `backend-ssh:/data/ssh`; depende de `postgres` e `ollama` saudáveis |
 | `ollama` | `ollama/ollama:0.40.13` | Volume `ollama-models:/root/.ollama`; `OLLAMA_KEEP_ALIVE`; healthcheck `ollama list` |
 | `ollama-init` | `ollama/ollama:0.40.13` | `OLLAMA_HOST=http://ollama:11434`; baixa `CHAT_MODEL` só se `ollama show` falhar; termina; `restart: "no"` |
 | `postgres` | `postgres:18.6-alpine` | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
@@ -34,7 +34,8 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 Variáveis do backend (com o padrão):
 
 ```
-OLLAMA_URL=http://ollama:11434          OLLAMA_TIMEOUT_SECONDS=300     CHAT_MODEL=qwen3:8b
+OLLAMA_URL=http://ollama:11434          GPU_TUNNEL_PORT=11435          OLLAMA_TIMEOUT_SECONDS=300
+CHAT_MODEL=qwen3:8b
 CHAT_NUM_CTX=8192                       CHAT_TEMPERATURE=0.2           CHAT_THINK=false
 HISTORY_MAX_MESSAGES=6                  MAX_TOOL_ROUNDS=5
 POSTGRES_HOST=postgres  POSTGRES_PORT=5432  POSTGRES_DB=celke_agro  POSTGRES_USER=celke  POSTGRES_PASSWORD=
@@ -45,13 +46,11 @@ DISCOVERY_MAX_Q=0.10                    DISCOVERY_MIN_ABS_R=0.4        DISCOVERY
 ALERT_RAIN_DEFICIT_PCT=25               ALERT_DRY_SPELL_DAYS=10
 ```
 
-`compose.externo.yaml` (GPU externa, por exemplo a GPU hosting da Hostinger): o serviço `gpu-tunnel` (`alpine:3.22`,
-instala o `openssh-client` e abre `ssh -N -L 0.0.0.0:11434:127.0.0.1:11434` até `GPU_SSH`, na porta `GPU_SSH_PORT`,
-com a chave `GPU_SSH_KEY` montada só para leitura e copiada com permissão 600; `StrictHostKeyChecking=accept-new` com
-o `known_hosts` num volume; healthcheck `nc -z 127.0.0.1 11434`); `ollama` e `ollama-init` só no profile
-`ollama-local`; backend e `finetune-tools` com `OLLAMA_URL=http://gpu-tunnel:11434` e `depends_on: !reset`. O túnel
-fica na rede do Docker: a porta do Ollama não abre na internet nem na rede local. Os scripts de inicialização só
-esperam o `ollama-init` se ele estiver em `docker compose config --services`.
+GPU externa (por exemplo, a GPU hosting da Hostinger): nenhum arquivo de compose a mais e nada no `.env`. O backend
+abre o túnel SSH ele mesmo (etapa 4) e guarda a chave SSH que gera no volume `backend-ssh`, montado em `/data/ssh` (o
+`Dockerfile` cria a pasta com dono `app` e permissão 700). A porta do túnel (`GPU_TUNNEL_PORT`) não é publicada: só
+a rede do Docker a alcança (`http://backend:11435`, usado pelo `finetune-tools` para avaliar um modelo do servidor).
+Os scripts de inicialização esperam o `ollama-init` terminar.
 
 `compose.gpu.yaml`: no `ollama`, `deploy.resources.reservations.devices` com `driver: nvidia`, `count: all`,
 `capabilities: [gpu]`. `compose.dev.yaml`: publica o backend em `127.0.0.1:8000` (só para o Vite em desenvolvimento).

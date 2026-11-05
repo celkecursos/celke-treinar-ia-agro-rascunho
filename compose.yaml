@@ -6,8 +6,9 @@ name: celke-treinar-ia-agro
 
 # Variáveis do backend, usadas também pelas ferramentas do fine-tuning.
 x-backend-environment: &backend-environment
-  # Ollama local; com a GPU externa, o compose.externo.yaml troca pelo túnel SSH
+  # Ollama local. A GPU externa (túnel SSH aberto pelo backend) e o modelo em uso se configuram na página Modelo de IA.
   OLLAMA_URL: http://ollama:11434
+  GPU_TUNNEL_PORT: ${GPU_TUNNEL_PORT:-11435}
   OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
   CHAT_MODEL: ${CHAT_MODEL:-qwen3:8b}
   CHAT_NUM_CTX: ${CHAT_NUM_CTX:-8192}
@@ -51,6 +52,9 @@ services:
       context: ./backend
       target: runtime
     environment: *backend-environment
+    volumes:
+      # chave SSH que o backend gera para a GPU externa (a privada nunca sai do volume)
+      - backend-ssh:/data/ssh
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,6 +120,7 @@ services:
   # Fine-tuning (etapa opcional): dataset e avaliação no container do backend.
   # docker compose --profile finetune run --rm finetune-tools exportar
   # docker compose --profile finetune run --rm finetune-tools avaliar --modelo qwen3:8b
+  # Na GPU externa (túnel aberto na página Modelo de IA), acrescente -e OLLAMA_URL=http://backend:11435
   finetune-tools:
     profiles: [finetune]
     build:
@@ -193,3 +198,4 @@ services:
 volumes:
   ollama-models:
   postgres-data:
+  backend-ssh:

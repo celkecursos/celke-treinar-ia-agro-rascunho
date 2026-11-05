@@ -200,6 +200,402 @@ export function ChartView({ spec, altura }: { spec: ChartSpec; altura?: number }
 }
 ``````
 
+`frontend/src/components/GpuCard.tsx`:
+
+``````tsx
+import {
+  Alerta,
+  Botao,
+  CampoInteiro,
+  CampoSenha,
+  CampoTexto,
+  Card,
+  Status,
+  useConfirmacao,
+  useToast,
+} from '@celke/kole-react';
+import { useState } from 'react';
+import { ApiError, api } from '../services/api';
+import type { GpuStatus } from '../types/api';
+
+type Severidade = 'ok' | 'info' | 'warn' | 'err' | 'neutral';
+
+const STATE: Record<GpuStatus['state'], { rotulo: string; severidade: Severidade }> = {
+  nao_configurado: { rotulo: 'Não cadastrada', severidade: 'neutral' },
+  desconectado: { rotulo: 'Desconectada', severidade: 'neutral' },
+  conectando: { rotulo: 'Conectando', severidade: 'info' },
+  conectado: { rotulo: 'Conectada', severidade: 'ok' },
+  erro: { rotulo: 'Erro', severidade: 'err' },
+};
+
+/**
+ * Servidor da GPU externa, todo pelo painel: endereço, chave SSH gerada pelo backend (só a pública aparece aqui),
+ * instalação da chave com a senha do servidor e o túnel SSH, que o backend abre e mantém.
+ */
+export function GpuCard({ gpu, onChange }: { gpu?: GpuStatus; onChange: () => Promise<void> }) {
+  const toast = useToast();
+  const confirmar = useConfirmacao();
+  const [host, setHost] = useState<string>();
+  const [port, setPort] = useState<number | null>();
+  const [user, setUser] = useState<string>();
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState<string>();
+
+  const hostValue = host ?? gpu?.host ?? '';
+  const portValue = port !== undefined ? port : (gpu?.port ?? 22);
+  const userValue = user ?? gpu?.user ?? 'root';
+  const changed = hostValue !== (gpu?.host ?? '') || portValue !== gpu?.port || userValue !== gpu?.user;
+
+  async function run(action: string, call: () => Promise<unknown>, success?: string) {
+    setBusy(action);
+    try {
+      await call();
+      if (success) toast.ok(success);
+      await onChange();
+      return true;
+    } catch (e) {
+      toast.err('Não foi possível concluir', e instanceof ApiError ? e.message : undefined);
+      return false;
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  async function save() {
+    const ok = await run('salvar', () => api.saveGpu(hostValue.trim(), portValue ?? 22, userValue.trim()));
+    if (ok) {
+      setHost(undefined);
+      setPort(undefined);
+      setUser(undefined);
+    }
+  }
+
+  async function installKey() {
+    const ok = await run('chave', () => api.installGpuKey(password), 'Chave instalada no servidor');
+    if (ok) setPassword('');
+  }
+
+  async function remove() {
+    const ok = await confirmar.remover({
+      titulo: 'Remover a GPU externa?',
+      mensagem:
+        'O túnel é fechado e o endereço é apagado. Se ela estava em uso, o modelo volta para este computador. ' +
+        'A instância continua no provedor: desligue ou apague lá para parar a cobrança.',
+    });
+    if (ok) await run('remover', api.removeGpu, 'GPU externa removida');
+  }
+
+  async function copyKey() {
+    try {
+      await navigator.clipboard.writeText(gpu?.public_key ?? '');
+      toast.ok('Chave pública copiada');
+    } catch {
+      toast.err('Não foi possível copiar', 'Selecione a chave e copie com Ctrl+C.');
+    }
+  }
+
+  const state = gpu ? STATE[gpu.state] : undefined;
+  const connected = gpu?.state === 'conectado';
+  const active = gpu?.state === 'conectado' || gpu?.state === 'conectando';
+
+  return (
+    <Card
+      titulo="GPU externa"
+      subtitulo="Ollama num servidor alugado por hora (ex.: GPU da Hostinger com o app Ollama), pelo túnel SSH do backend"
+      ferramentas={state && <Status {...state} />}
+    >
+      <div className="app-modelo">
+        {/* As dicas ficam fora da linha: dentro do campo, desalinham os campos e o botão. */}
+        <div>
+          <div className="app-filtros">
+            <CampoTexto rotulo="Endereço do servidor" valor={hostValue} aoMudar={setHost} placeholder="203.0.113.10" />
+            <CampoInteiro rotulo="Porta SSH" valor={portValue} aoMudar={setPort} className="app-campo-curto" />
+            <CampoTexto rotulo="Usuário" valor={userValue} aoMudar={setUser} className="app-campo-curto" />
+            <Botao
+              rotulo={gpu?.configured ? 'Salvar e conectar' : 'Cadastrar e conectar'}
+              icone="link"
+              carregando={busy === 'salvar'}
+              disabled={!hostValue.trim() || !userValue.trim() || busy !== undefined || (gpu?.configured && !changed)}
+              onClick={() => void save()}
+            />
+          </div>
+          <p className="app-modelo-passo">Endereço: o IP ou o nome que o painel do provedor mostra.</p>
+        </div>
+
+        {gpu?.configured && gpu.message && (
+          <Alerta
+            severidade={gpu.state === 'erro' ? 'err' : connected ? 'ok' : 'info'}
+            titulo={state?.rotulo ?? ''}
+            mensagem={gpu.message}
+          />
+        )}
+        {gpu?.host_key_mismatch && (
+          <div>
+            <Botao
+              rotulo="Aceitar a chave nova do servidor"
+              icone="key"
+              aparencia="contorno"
+              carregando={busy === 'aceitar'}
+              disabled={busy !== undefined}
+              onClick={() => void run('aceitar', api.acceptGpuHostKey)}
+            />
+          </div>
+        )}
+
+        <div>
+          <p className="app-modelo-passo">
+            Chave pública desta aplicação. Cadastre no painel do provedor (chaves SSH) antes de criar a instância, ou
+            instale abaixo com a senha do servidor. A chave privada fica só no volume do backend.
+          </p>
+          <div className="app-chave">
+            <code>{gpu?.public_key ?? '…'}</code>
+            <Botao rotulo="Copiar" icone="copy" tamanho="pequeno" aparencia="texto" onClick={() => void copyKey()} />
+          </div>
+          {gpu?.host_key_fingerprint && (
+            <p className="app-modelo-passo">Chave do servidor aceita: {gpu.host_key_fingerprint}</p>
+          )}
+        </div>
+
+        {gpu?.configured && !connected && (
+          <div>
+            <div className="app-filtros">
+              <CampoSenha
+                rotulo={`Senha de ${gpu.user} no servidor`}
+                valor={password}
+                aoMudar={setPassword}
+                autoComplete="off"
+              />
+              <Botao
+                rotulo="Instalar a chave"
+                icone="key"
+                aparencia="contorno"
+                carregando={busy === 'chave'}
+                disabled={!password || busy !== undefined}
+                onClick={() => void installKey()}
+              />
+            </div>
+            <p className="app-modelo-passo">A senha é usada uma vez para instalar a chave e não fica guardada.</p>
+          </div>
+        )}
+
+        {gpu?.configured && (
+          <div className="app-acoes">
+            {active ? (
+              <Botao
+                rotulo="Desconectar"
+                icone="log-out"
+                aparencia="contorno"
+                carregando={busy === 'desconectar'}
+                disabled={busy !== undefined}
+                onClick={() => void run('desconectar', api.disconnectGpu)}
+              />
+            ) : (
+              <Botao
+                rotulo="Conectar"
+                icone="link"
+                carregando={busy === 'conectar'}
+                disabled={busy !== undefined}
+                onClick={() => void run('conectar', api.connectGpu)}
+              />
+            )}
+            <Botao
+              rotulo="Remover servidor"
+              icone="trash-2"
+              aparencia="texto"
+              disabled={busy !== undefined}
+              onClick={() => void remove()}
+            />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+``````
+
+`frontend/src/components/ModelCard.tsx`:
+
+``````tsx
+import { Alerta, Botao, CampoSelect, CampoTexto, Card, Escolha, Progresso, useToast } from '@celke/kole-react';
+import { useState } from 'react';
+import { ApiError, api } from '../services/api';
+import type { OllamaLocation, OllamaServer, OllamaStatus } from '../types/api';
+
+function modelLabel(m: OllamaServer['models'][number]): string {
+  const details = [m.parameter_size, m.size_gb ? `${m.size_gb} GB` : null].filter(Boolean).join(' · ');
+  return details ? `${m.name} (${details})` : m.name;
+}
+
+/**
+ * Onde roda o modelo de linguagem (este computador ou a GPU externa) e qual modelo usar. Vale para o chat, as
+ * descobertas, os alertas e a explicação da previsão, sem reiniciar nada. Também baixa modelos no Ollama escolhido.
+ */
+export function ModelCard({ ollama, onChange }: { ollama?: OllamaStatus; onChange: () => Promise<void> }) {
+  const toast = useToast();
+  const [draftLocation, setDraftLocation] = useState<OllamaLocation>();
+  const [draftModel, setDraftModel] = useState<string | null>();
+  const [pullName, setPullName] = useState('');
+  const [busy, setBusy] = useState<'usar' | 'baixar'>();
+
+  const location = draftLocation ?? ollama?.location ?? 'local';
+  const server = ollama?.servers.find((s) => s.location === location);
+  const external = ollama?.servers.find((s) => s.location === 'externo');
+  const model = draftModel !== undefined ? draftModel : (server?.chat_model ?? null);
+  const inUse = ollama?.location === location && ollama.chat_model.name === model;
+  const pulling = server?.pull?.status === 'baixando';
+
+  function chooseLocation(value: OllamaLocation) {
+    setDraftLocation(value);
+    setDraftModel(undefined);
+  }
+
+  async function use() {
+    if (!model) return;
+    setBusy('usar');
+    try {
+      await api.selectModel(location, model);
+      toast.ok('Modelo trocado', `${model} (${server?.label.toLowerCase()}) em uso a partir da próxima pergunta.`);
+      setDraftLocation(undefined);
+      setDraftModel(undefined);
+      await onChange();
+    } catch (e) {
+      toast.err('Não foi possível trocar o modelo', e instanceof ApiError ? e.message : undefined);
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  async function pull() {
+    const name = pullName.trim();
+    if (!name) return;
+    setBusy('baixar');
+    try {
+      await api.pullModel(location, name);
+      toast.info('Download iniciado', 'O andamento aparece aqui. Modelos grandes levam alguns minutos.');
+      setPullName('');
+      await onChange();
+    } catch (e) {
+      toast.err('Não foi possível baixar', e instanceof ApiError ? e.message : undefined);
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  return (
+    <Card
+      titulo="Modelo de IA"
+      subtitulo={
+        ollama
+          ? `Em uso: ${ollama.chat_model.name}, ${ollama.servers.find((s) => s.location === ollama.location)?.label.toLowerCase()}`
+          : 'Verificando'
+      }
+    >
+      <div className="app-modelo">
+        <Escolha<OllamaLocation>
+          rotulo="Onde o modelo roda"
+          opcoes={(ollama?.servers ?? []).map((s) => ({
+            valor: s.location,
+            rotulo: s.label,
+            desabilitada: !s.configured,
+          }))}
+          valor={location}
+          aoMudar={chooseLocation}
+          dica={
+            external && !external.configured
+              ? 'Para usar a GPU externa, cadastre o servidor no card "GPU externa" abaixo.'
+              : 'A GPU externa é cobrada por hora enquanto a instância estiver ligada.'
+          }
+        />
+
+        {server && !server.online && server.configured && (
+          <Alerta severidade="err" titulo={`${server.label}: desconectado`} mensagem={server.error ?? undefined} />
+        )}
+
+        {/* As dicas ficam fora da linha: dentro do campo, empurram o botão para baixo da caixa. */}
+        <div>
+          <div className="app-filtros">
+            <CampoSelect<string>
+              rotulo="Modelo"
+              opcoes={(server?.models ?? []).map((m) => ({
+                valor: m.name,
+                rotulo: modelLabel(m),
+              }))}
+              valor={model}
+              aoMudar={(v) => setDraftModel(v)}
+              placeholder={server?.online ? 'Escolha um modelo instalado' : 'Ollama indisponível'}
+              disabled={!server?.online}
+              comBusca
+            />
+            <Botao
+              rotulo={inUse ? 'Em uso' : 'Usar este modelo'}
+              icone="check"
+              carregando={busy === 'usar'}
+              disabled={inUse || !model || !server?.online || busy !== undefined}
+              onClick={() => void use()}
+            />
+          </div>
+          <p className="app-modelo-passo">
+            Modelo maior responde melhor, mas pede mais memória: na CPU, até 8B; GPU de 12 GB, 14B; GPU externa de 24 GB
+            ou mais, 32B.
+          </p>
+        </div>
+
+        <div>
+          <div className="app-filtros">
+            <CampoTexto
+              rotulo={`Baixar modelo ${location === 'externo' ? 'no servidor da GPU' : 'neste computador'}`}
+              valor={pullName}
+              aoMudar={setPullName}
+              placeholder="qwen3:14b"
+              disabled={!server?.online || pulling}
+            />
+            <Botao
+              rotulo="Baixar"
+              icone="download"
+              aparencia="contorno"
+              carregando={busy === 'baixar' || pulling}
+              disabled={!pullName.trim() || !server?.online || pulling || busy !== undefined}
+              onClick={() => void pull()}
+            />
+          </div>
+          <p className="app-modelo-passo">
+            Nome como no site do Ollama (ollama.com/library). O chat precisa de um modelo com a etiqueta tools.
+          </p>
+        </div>
+
+        {server?.pull?.status === 'baixando' && (
+          <div>
+            <Progresso
+              valor={server.pull.percent ?? 0}
+              rotulo={`Download do modelo ${server.pull.model}`}
+              etiqueta={server.pull.model}
+              mostrarValor="fim"
+              aparencia="listrado"
+              animado
+            />
+            <p className="app-modelo-passo">{server.pull.message}</p>
+          </div>
+        )}
+        {server?.pull?.status === 'concluido' && (
+          <Alerta
+            severidade="ok"
+            titulo={`${server.pull.model} baixado`}
+            mensagem='Escolha o modelo na lista e clique em "Usar este modelo".'
+          />
+        )}
+        {server?.pull?.status === 'erro' && (
+          <Alerta
+            severidade="err"
+            titulo={`Erro ao baixar ${server.pull.model}`}
+            mensagem={server.pull.message ?? undefined}
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
+``````
+
 `frontend/src/components/StatusLabel.tsx`:
 
 ``````tsx
@@ -382,7 +778,7 @@ export function AppLayout() {
       )}
       busca={false}
       versao="1.0.0"
-      rodape={<span>Dados: Open-Meteo (CC BY 4.0) e IBGE · a IA roda no seu computador com o Ollama</span>}
+      rodape={<span>Dados: Open-Meteo (CC BY 4.0) e IBGE · IA com o Ollama, neste computador ou numa GPU externa</span>}
     >
       <Outlet />
     </Estrutura>
@@ -1514,6 +1910,55 @@ export function ForecastPage() {
 }
 ``````
 
+`frontend/src/pages/ModelPage.tsx`:
+
+``````tsx
+import { Alerta, Botao, CabecalhoPagina } from '@celke/kole-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router';
+import { GpuCard } from '../components/GpuCard';
+import { ModelCard } from '../components/ModelCard';
+import { usePolling } from '../hooks/usePolling';
+import { api } from '../services/api';
+
+/** Onde o modelo de linguagem roda (este computador ou a GPU externa), qual modelo usar e o servidor da GPU externa. */
+export function ModelPage() {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  // durante o download de um modelo ou a conexão com a GPU externa, a tela se atualiza a cada 2 segundos
+  const status = usePolling(api.status, busy ? 2000 : 10000);
+  const s = status.data;
+  const isBusy =
+    !!s?.ollama.servers.some((server) => server.pull?.status === 'baixando') || s?.gpu.state === 'conectando';
+  if (isBusy !== busy) setBusy(isBusy);
+
+  return (
+    <div className="app-pagina">
+      <CabecalhoPagina
+        titulo="Modelo de IA"
+        icone="cpu"
+        acoes={
+          <Botao
+            rotulo="Status e coletas"
+            icone="arrow-left"
+            aparencia="contorno"
+            tamanho="pequeno"
+            onClick={() => navigate('/status')}
+          />
+        }
+      >
+        Onde o modelo de linguagem roda e qual modelo usar no chat, nas descobertas, nos alertas e na explicação da
+        previsão. A troca vale na hora, sem reiniciar nada.
+      </CabecalhoPagina>
+
+      {status.error && <Alerta severidade="err" titulo="Backend indisponível" mensagem={status.error.message} />}
+      <ModelCard ollama={s?.ollama} onChange={status.reload} />
+      <GpuCard gpu={s?.gpu} onChange={status.reload} />
+    </div>
+  );
+}
+``````
+
 `frontend/src/pages/MunicipalitiesPage.tsx`:
 
 ``````tsx
@@ -1704,6 +2149,7 @@ export function NotFoundPage() {
 ``````tsx
 import { Alerta, Botao, CabecalhoPagina, Card, Tabela, formatDataHoraBr, useToast } from '@celke/kole-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { OnlineStatus, RunStatusLabel, TRIGGER_LABEL } from '../components/StatusLabel';
 import { usePolling } from '../hooks/usePolling';
 import { ApiError, api } from '../services/api';
@@ -1717,10 +2163,12 @@ const SOURCE_LABEL: Record<CollectionSource, string> = {
 
 export function StatusPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const status = usePolling(api.status, 10000);
   const collections = usePolling(api.collections, 4000);
   const [starting, setStarting] = useState<CollectionSource>();
   const s = status.data;
+  const currentServer = s?.ollama.servers.find((server) => server.location === s.ollama.location);
 
   async function collect(source: CollectionSource) {
     setStarting(source);
@@ -1738,15 +2186,15 @@ export function StatusPage() {
   return (
     <div className="app-pagina">
       <CabecalhoPagina titulo="Status e coletas" icone="activity">
-        Serviços, fontes de dados e o registro de cada coleta. A chuva é coletada todo dia; a produção e a estimativa da
-        safra, uma vez por mês. Use "Buscar agora" quando precisar do dado na hora.
+        Serviços, fontes de dados e o registro de cada coleta. A chuva é coletada todo dia; a produção e a
+        estimativa da safra, uma vez por mês. Use "Buscar agora" quando precisar do dado na hora.
       </CabecalhoPagina>
 
       {s && !s.ollama.online && (
         <Alerta
           severidade="err"
           titulo={s.ollama.location === 'externo' ? 'GPU externa desconectada' : 'Ollama desconectado'}
-          mensagem={s.ollama.error ?? 'Veja: docker compose logs ollama'}
+          mensagem={`${s.ollama.error ?? 'Veja: docker compose logs ollama'} Ou escolha outro Ollama em Configurar (Serviços).`}
         />
       )}
       {s?.ollama.online && !s.ollama.chat_model.installed && (
@@ -1755,7 +2203,7 @@ export function StatusPage() {
           titulo="Modelo ainda não instalado"
           mensagem={
             s.ollama.location === 'externo'
-              ? `Baixe o modelo no servidor da GPU: ollama pull ${s.ollama.chat_model.name}`
+              ? `Baixe ${s.ollama.chat_model.name} em Configurar (Serviços) ou escolha um modelo já instalado no servidor.`
               : 'O download inicial pode levar alguns minutos. Acompanhe com: docker compose logs -f ollama-init'
           }
         />
@@ -1764,7 +2212,7 @@ export function StatusPage() {
         <Alerta
           severidade="err"
           titulo="O modelo não aceita ferramentas"
-          mensagem="O chat precisa de um modelo com tool calling (etiqueta tools no Ollama). Troque CHAT_MODEL no .env."
+          mensagem='O chat precisa de um modelo com tool calling (etiqueta tools no Ollama). Troque em Configurar (Serviços).'
         />
       )}
 
@@ -1826,7 +2274,20 @@ export function StatusPage() {
         />
       </Card>
 
-      <Card titulo="Serviços" subtitulo="Atualizado a cada 10 segundos">
+      <Card
+        titulo="Serviços"
+        subtitulo="Atualizado a cada 10 segundos"
+        ferramentas={
+          <Botao
+            rotulo="Configurar"
+            icone="settings"
+            tamanho="pequeno"
+            aparencia="contorno"
+            dica="Modelo de IA: onde roda (este computador ou GPU externa) e qual modelo usar"
+            onClick={() => navigate('/modelo-ia')}
+          />
+        }
+      >
         {status.error ? (
           <Alerta severidade="err" titulo="Backend indisponível" mensagem={status.error.message} />
         ) : (
@@ -1836,10 +2297,7 @@ export function StatusPage() {
               <OnlineStatus online={!!s?.backend.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
-              <span>
-                Ollama{' '}
-                {s && (s.ollama.location === 'externo' ? '(GPU externa, pelo túnel SSH)' : '(neste computador)')}
-              </span>
+              <span>Ollama em uso{currentServer && ` (${currentServer.label.toLowerCase()})`}</span>
               <OnlineStatus online={!!s?.ollama.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
@@ -1877,6 +2335,7 @@ import { AnalysesPage } from './pages/AnalysesPage';
 import { ChatPage } from './pages/ChatPage';
 import { DiscoveriesPage } from './pages/DiscoveriesPage';
 import { ForecastPage } from './pages/ForecastPage';
+import { ModelPage } from './pages/ModelPage';
 import { MunicipalitiesPage } from './pages/MunicipalitiesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { StatusPage } from './pages/StatusPage';
@@ -1892,6 +2351,7 @@ export const router = createBrowserRouter([
       { path: '/chat', element: <ChatPage /> },
       { path: '/municipios', element: <MunicipalitiesPage /> },
       { path: '/status', element: <StatusPage /> },
+      { path: '/modelo-ia', element: <ModelPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
@@ -1912,11 +2372,15 @@ import type {
   Conversation,
   ConversationDetail,
   CropKey,
+  GpuStatus,
   DiscoveryReport,
   Estimate,
   ForecastView,
   IbgeMunicipality,
   Municipality,
+  OllamaLocation,
+  OllamaStatus,
+  PullStatus,
   SystemStatus,
 } from '../types/api';
 import { readSse } from './sse';
@@ -1970,6 +2434,16 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   status: () => request<SystemStatus>('/status'),
+  selectModel: (location: OllamaLocation, model: string) =>
+    request<OllamaStatus>('/ollama/selection', json('POST', { location, model })),
+  pullModel: (location: OllamaLocation, model: string) =>
+    request<PullStatus>('/ollama/pull', json('POST', { location, model })),
+  saveGpu: (host: string, port: number, user: string) => request<GpuStatus>('/gpu', json('POST', { host, port, user })),
+  connectGpu: () => request<GpuStatus>('/gpu/connect', { method: 'POST' }),
+  disconnectGpu: () => request<GpuStatus>('/gpu/disconnect', { method: 'POST' }),
+  installGpuKey: (password: string) => request<GpuStatus>('/gpu/install-key', json('POST', { password })),
+  acceptGpuHostKey: () => request<GpuStatus>('/gpu/accept-host-key', { method: 'POST' }),
+  removeGpu: () => request<GpuStatus>('/gpu', { method: 'DELETE' }),
   municipalities: () => request<{ items: Municipality[] }>('/municipalities').then((r) => r.items),
   createMunicipality: (code: number) => request<Municipality>('/municipalities', json('POST', { code })),
   deleteMunicipality: (code: number) => request<void>(`/municipalities/${code}`, { method: 'DELETE' }),
@@ -2444,6 +2918,54 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
 .app-grafico-chat {
   min-width: min(100%, 30rem);
 }
+
+/* Card "Modelo de IA" da página de Status */
+.app-modelo {
+  display: grid;
+  gap: 1rem;
+}
+
+/* sem isso, a chave e a impressão digital (palavras longas) alargam o card no celular */
+.app-modelo > * {
+  min-width: 0;
+}
+
+.app-modelo-passo {
+  margin: 0.375rem 0 0;
+  color: var(--t3);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
+/* Card "GPU externa": chave pública, campos curtos e ações */
+.app-chave {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: var(--hairline) solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.app-chave code {
+  flex: 1;
+  min-width: 0;
+  color: var(--t2);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
+.app-filtros > .app-campo-curto {
+  flex: 0 1 8rem;
+}
+
+.app-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
 ``````
 
 `frontend/src/types/api.ts`:
@@ -2653,14 +3175,56 @@ export type ChatEvent =
   | { type: 'done' }
   | { type: 'error'; code: string; message: string };
 
+/** local = Ollama deste computador; externo = GPU externa pelo túnel SSH. */
+export type OllamaLocation = 'local' | 'externo';
+
+export interface PullStatus {
+  model: string;
+  status: 'baixando' | 'concluido' | 'erro';
+  message: string | null;
+  percent: number | null;
+}
+
+export interface OllamaServer {
+  location: OllamaLocation;
+  label: string;
+  configured: boolean;
+  online: boolean;
+  models: { name: string; size_gb: number | null; parameter_size: string | null }[];
+  /** Modelo escolhido para este Ollama. */
+  chat_model: string;
+  error: string | null;
+  pull: PullStatus | null;
+}
+
+/** O Ollama e o modelo em uso, escolhidos na página Modelo de IA. */
+export interface OllamaStatus {
+  online: boolean;
+  chat_model: { name: string; installed: boolean; tools: boolean | null };
+  location: OllamaLocation;
+  error: string | null;
+  servers: OllamaServer[];
+}
+
+/** Servidor da GPU externa e o túnel SSH que o backend abre até ele. */
+export interface GpuStatus {
+  configured: boolean;
+  host: string | null;
+  port: number;
+  user: string;
+  state: 'nao_configurado' | 'desconectado' | 'conectando' | 'conectado' | 'erro';
+  message: string | null;
+  /** Chave pública do backend, para cadastrar no servidor. */
+  public_key: string;
+  host_key_fingerprint: string | null;
+  host_key_mismatch: boolean;
+  tunnel_port: number;
+}
+
 export interface SystemStatus {
   backend: { online: boolean; error: string | null };
-  ollama: {
-    online: boolean;
-    chat_model: { name: string; installed: boolean; tools: boolean | null };
-    location: 'local' | 'externo';
-    error: string | null;
-  };
+  ollama: OllamaStatus;
+  gpu: GpuStatus;
   database: { online: boolean; error: string | null };
   scheduler: { enabled: boolean; timezone: string; rain_hour: number; monthly_day: number };
 }

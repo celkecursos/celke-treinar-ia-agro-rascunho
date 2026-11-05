@@ -10,8 +10,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Ollama deste computador. O da GPU externa é cadastrado na página Modelo de IA, assim como qual dos dois usar e o
+    # modelo de cada um.
     ollama_url: str = "http://ollama:11434"
+    # GPU externa: chave SSH gerada pelo backend (volume backend-ssh) e porta do túnel dentro da rede do Docker
+    ssh_key_dir: str = "/data/ssh"
+    gpu_tunnel_port: int = 11435
     ollama_timeout_seconds: float = 300.0
+    # Modelo usado enquanto nenhum for escolhido na página Modelo de IA
     chat_model: str = "qwen3:8b"
     # Janela de contexto do modelo. O padrão do Ollama corta os resultados das ferramentas sem avisar.
     chat_num_ctx: int = 8192

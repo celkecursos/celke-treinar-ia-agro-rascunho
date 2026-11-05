@@ -9,11 +9,15 @@ import type {
   Conversation,
   ConversationDetail,
   CropKey,
+  GpuStatus,
   DiscoveryReport,
   Estimate,
   ForecastView,
   IbgeMunicipality,
   Municipality,
+  OllamaLocation,
+  OllamaStatus,
+  PullStatus,
   SystemStatus,
 } from '../types/api';
 import { readSse } from './sse';
@@ -67,6 +71,16 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   status: () => request<SystemStatus>('/status'),
+  selectModel: (location: OllamaLocation, model: string) =>
+    request<OllamaStatus>('/ollama/selection', json('POST', { location, model })),
+  pullModel: (location: OllamaLocation, model: string) =>
+    request<PullStatus>('/ollama/pull', json('POST', { location, model })),
+  saveGpu: (host: string, port: number, user: string) => request<GpuStatus>('/gpu', json('POST', { host, port, user })),
+  connectGpu: () => request<GpuStatus>('/gpu/connect', { method: 'POST' }),
+  disconnectGpu: () => request<GpuStatus>('/gpu/disconnect', { method: 'POST' }),
+  installGpuKey: (password: string) => request<GpuStatus>('/gpu/install-key', json('POST', { password })),
+  acceptGpuHostKey: () => request<GpuStatus>('/gpu/accept-host-key', { method: 'POST' }),
+  removeGpu: () => request<GpuStatus>('/gpu', { method: 'DELETE' }),
   municipalities: () => request<{ items: Municipality[] }>('/municipalities').then((r) => r.items),
   createMunicipality: (code: number) => request<Municipality>('/municipalities', json('POST', { code })),
   deleteMunicipality: (code: number) => request<void>(`/municipalities/${code}`, { method: 'DELETE' }),

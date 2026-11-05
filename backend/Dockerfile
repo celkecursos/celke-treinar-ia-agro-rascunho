@@ -1,7 +1,9 @@
 FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
-RUN useradd --create-home --uid 1000 app && chown app:app /app
+RUN useradd --create-home --uid 1000 app && chown app:app /app \
+  # chave SSH da GPU externa (volume backend-ssh), só legível pelo backend
+  && install -d -o app -g app -m 700 /data/ssh
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 

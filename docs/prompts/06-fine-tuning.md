@@ -49,7 +49,9 @@ Linha de comando no container do backend: `python -m app.finetune exportar --sai
   troca o `FROM` pelo GGUF treinado e cria `celke-agro`, mantendo o template de ferramentas do Qwen3.
 
 - `treinar_remoto.sh` (GPU externa, rodado no Linux, no macOS ou no Git Bash): `./finetuning/treinar_remoto.sh
-  usuario@ip [porta]`, com `GPU_SSH_KEY` e as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
+  [usuario@ip [porta]]`: sem argumento, pega o servidor de `GET /api/gpu` (com `docker compose exec backend`) e copia
+  a chave do volume do backend para um `mktemp` apagado no fim (`trap`); com argumento, usa `GPU_SSH_KEY`
+  (padrão `~/.ssh/id_ed25519`). Lê as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
   `treinar.py`, `requirements.txt` e `treino.jsonl` para `~/celke-finetune`, instala os pacotes do sistema que faltarem
   (com `sudo` se não for root), cria um ambiente Python isolado, instala as dependências fixas, treina e traz
   `celke-agro.gguf` e `treino.json` para `finetuning/output/`. Com `CRIAR_NO_SERVIDOR=1`, cria o `celke-agro` também
@@ -88,10 +90,10 @@ docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro   # o "depois"
 ```
 
-Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB):
+Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB), cadastrada na página Modelo de IA (card GPU externa):
 
 ```bash
-./finetuning/treinar_remoto.sh root@<ip>
+./finetuning/treinar_remoto.sh
 docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
 ```

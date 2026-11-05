@@ -170,11 +170,18 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages (conversation_id, seq);
+
+-- Escolhas feitas no painel (Ollama em uso e modelo de cada Ollama). Valem até a próxima troca, mesmo reiniciando.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 TABLES = (
     "municipalities, state_references, weather_daily, crop_yearly, crop_estimates, collection_runs, "
-    "discovery_reports, discoveries, alerts, forecast_models, conversations, messages"
+    "discovery_reports, discoveries, alerts, forecast_models, conversations, messages, app_settings"
 )
 
 

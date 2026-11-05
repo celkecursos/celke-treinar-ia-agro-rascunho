@@ -8,11 +8,57 @@ para fazer contas, não escreve SQL e não executa comandos.
 
 ## Ollama (`services/ollama_service.py`)
 
-`chat_stream(messages, tools)` com streaming, devolvendo pedaços `content`, `thinking` e `tool_call`; `chat_json`
-com saída estruturada (`format` = esquema JSON) e sem raciocínio; `capabilities()` para saber se o modelo aceita
-ferramentas. Erros traduzidos: modelo ausente (com o comando `ollama pull`), modelo sem ferramentas, falta de memória,
-tempo esgotado, sem conexão. `CHAT_THINK=false` por padrão: num teste na CPU, a mesma chamada de ferramenta saiu igual
-e 6 vezes mais rápida.
+Um `OllamaService` por servidor: `local` (`OLLAMA_URL`) e `externo` (a GPU externa, em
+`http://127.0.0.1:<GPU_TUNNEL_PORT>`, a ponta do túnel dentro do próprio backend). O modelo vem em cada chamada: `chat_stream(model, messages, tools)` com streaming,
+devolvendo pedaços `content`, `thinking` e `tool_call`; `chat_json(model, messages, schema)` com saída estruturada
+(`format` = esquema JSON) e sem raciocínio; `capabilities(model)` (guardado por modelo) para saber se aceita
+ferramentas; `installed_models()` com nome, tamanho e número de parâmetros; `pull(model)` com o andamento do download
+por camada, sem tempo limite de leitura. Erros traduzidos: modelo ausente (com o botão de download e o comando
+`ollama pull` do lugar certo), modelo sem ferramentas, falta de memória, tempo esgotado, sem conexão (na GPU externa, com o
+túnel aberto: Ollama parado no servidor ou SSH sem `AllowTcpForwarding`), modelo que não existe na biblioteca. `CHAT_THINK=false` por padrão:
+num teste na CPU, a mesma chamada de ferramenta saiu igual e 6 vezes mais rápida.
+
+## Escolha do modelo (`services/model_selector.py`)
+
+`ModelSelector` é o modelo de linguagem que o chat, as descobertas, os alertas e a explicação da previsão recebem
+(tem `name`, `chat_stream` e `chat_json`). Cada chamada vai ao Ollama e ao modelo escolhidos no momento, então a
+troca vale sem reiniciar. A escolha fica na tabela `app_settings` (chave e valor): `ollama_location` e o modelo de
+cada Ollama (`chat_model.local`, `chat_model.externo`), lida uma vez e guardada na memória; sem escolha no banco,
+`CHAT_MODEL` no Ollama local. Escolhida a GPU externa e depois removido o servidor, volta para o local; com o túnel
+fechado, as chamadas ao externo recebem a mensagem do túnel. `use_local()` volta para o local (chamado ao desconectar
+e ao remover a GPU externa pelo painel). `select(location, model)` recusa com 422 um Ollama não configurado, um modelo não instalado ou sem
+ferramentas, e com 503 um Ollama fora do ar. `pull(location, model)` baixa em segundo plano (um download por Ollama;
+409 se já houver um), com o andamento em porcentagem na memória. `status()` devolve o Ollama e o modelo em uso e, para
+cada Ollama, se está configurado e no ar, os modelos instalados, o modelo escolhido e o download.
+
+## GPU externa (`services/gpu_tunnel.py`)
+
+`GpuTunnel` abre e mantém o túnel SSH com `asyncssh`, num laço de eventos próprio numa thread (as rotas são
+síncronas). Tudo vem do painel e fica em `app_settings` (`gpu.host`, `gpu.port`, `gpu.user`, `gpu.enabled`,
+`gpu.host_key`); nada no `.env`.
+
+- Chave: ed25519 gerada na primeira vez em `SSH_KEY_DIR/id_ed25519` (permissão 600, comentário
+  `celke-treinar-ia-agro`). A API só devolve a pública.
+- Conexão: `forward_local_port` de `0.0.0.0:<GPU_TUNNEL_PORT>` até `127.0.0.1:11434` do servidor, sem agente SSH,
+  com keepalive de 30 s. Um supervisor reabre a conexão se ela cair (espera de 5 s, dobrando até 60 s) e para de
+  tentar quando a chave é recusada ou a chave do servidor mudou.
+- Chave do servidor: na primeira conexão (sem `known_hosts`), guarda a chave do servidor; nas seguintes, só conecta
+  com ela (`import_known_hosts`, com `[host]:porta` fora da 22). Se mudar, estado `erro`, `host_key_mismatch` e a
+  mensagem pedindo para aceitar só se a instância foi recriada.
+- `install_key(password)`: entra uma vez com a senha e acrescenta a chave pública ao `~/.ssh/authorized_keys` com
+  `umask 077` e `grep -qxF` (sem duplicar); a senha não é guardada nem registrada. Senha errada vira 422.
+- `save(host, port, user)` valida endereço (nome ou IP), porta e usuário, esquece a chave do servidor se o endereço
+  mudou e conecta; também `connect`, `disconnect`, `remove` e `forget_host_key`. Estados: `nao_configurado`,
+  `desconectado`, `conectando`, `conectado`, `erro`, sempre com uma mensagem que diz o que fazer.
+- `start()` na inicialização reabre o túnel se ele estava ligado; `stop()` no encerramento.
+
+Rotas: `GET /api/gpu`, `POST /api/gpu` (cadastra e conecta), `POST /api/gpu/connect`, `POST /api/gpu/disconnect`,
+`POST /api/gpu/install-key`, `POST /api/gpu/accept-host-key` e `DELETE /api/gpu`; desconectar e remover chamam
+`use_local()` antes. `GET /api/status` traz o mesmo em `gpu`.
+
+Rotas do modelo: `GET /api/ollama`, `POST /api/ollama/selection` e `POST /api/ollama/pull` (202), com `location` (`local` ou
+`externo`) e `model` (só letras, números e `._-/:`, até 200 caracteres). `GET /api/status` traz o mesmo em `ollama`.
+Os registros de descobertas e de treinos da previsão guardam o `name` do modelo em uso.
 
 ## Glossário (`core/domain.py`)
 
@@ -87,7 +133,12 @@ alertas, treino da previsão e descobertas, numa fila única (uma geração por 
 ## Testes
 
 Modelo falso roteirizado (rodadas de pedaços, incluindo `tool_call`) e com respostas JSON para descobertas, alertas e
-treino. Cubra: ferramenta chamada e resultado devolvido ao modelo, prompt com data e municípios, gráfico no stream,
+treino; servidores Ollama falsos (modelos, capacidades, download e erro de conexão) para o `ModelSelector`. Cubra:
+GPU externa padrão quando configurada, sem GPU externa, troca guardada no banco e lembrada depois de reiniciar, volta
+para o local, modelo ausente, sem ferramentas ou com nome inválido, Ollama fora do ar, download concluído, com erro e
+em conflito; o túnel contra um servidor SSH de verdade do `asyncssh` no próprio teste (chave recusada, senha errada e
+certa, porta encaminhada até um servidor de eco, desconectar, reconectar ao reiniciar, chave do servidor trocada e
+aceita) e desconectar ou remover voltando para o local; ferramenta chamada e resultado devolvido ao modelo, prompt com data e municípios, gráfico no stream,
 erro de ferramenta, última rodada sem ferramentas, raciocínio não mostrado, resposta vazia, erro e tentar de novo,
 histórico do banco; todas as ferramentas, inclusive argumentos inválidos e `chuva_do_mes` fora da janela;
 descobertas com e sem o modelo; alertas que aparecem e somem.

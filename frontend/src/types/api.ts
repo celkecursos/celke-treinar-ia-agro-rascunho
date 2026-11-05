@@ -202,14 +202,56 @@ export type ChatEvent =
   | { type: 'done' }
   | { type: 'error'; code: string; message: string };
 
+/** local = Ollama deste computador; externo = GPU externa pelo túnel SSH. */
+export type OllamaLocation = 'local' | 'externo';
+
+export interface PullStatus {
+  model: string;
+  status: 'baixando' | 'concluido' | 'erro';
+  message: string | null;
+  percent: number | null;
+}
+
+export interface OllamaServer {
+  location: OllamaLocation;
+  label: string;
+  configured: boolean;
+  online: boolean;
+  models: { name: string; size_gb: number | null; parameter_size: string | null }[];
+  /** Modelo escolhido para este Ollama. */
+  chat_model: string;
+  error: string | null;
+  pull: PullStatus | null;
+}
+
+/** O Ollama e o modelo em uso, escolhidos na página Modelo de IA. */
+export interface OllamaStatus {
+  online: boolean;
+  chat_model: { name: string; installed: boolean; tools: boolean | null };
+  location: OllamaLocation;
+  error: string | null;
+  servers: OllamaServer[];
+}
+
+/** Servidor da GPU externa e o túnel SSH que o backend abre até ele. */
+export interface GpuStatus {
+  configured: boolean;
+  host: string | null;
+  port: number;
+  user: string;
+  state: 'nao_configurado' | 'desconectado' | 'conectando' | 'conectado' | 'erro';
+  message: string | null;
+  /** Chave pública do backend, para cadastrar no servidor. */
+  public_key: string;
+  host_key_fingerprint: string | null;
+  host_key_mismatch: boolean;
+  tunnel_port: number;
+}
+
 export interface SystemStatus {
   backend: { online: boolean; error: string | null };
-  ollama: {
-    online: boolean;
-    chat_model: { name: string; installed: boolean; tools: boolean | null };
-    location: 'local' | 'externo';
-    error: string | null;
-  };
+  ollama: OllamaStatus;
+  gpu: GpuStatus;
   database: { online: boolean; error: string | null };
   scheduler: { enabled: boolean; timezone: string; rain_hour: number; monthly_day: number };
 }

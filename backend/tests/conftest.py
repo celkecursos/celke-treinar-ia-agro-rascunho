@@ -14,36 +14,22 @@ from app.repositories.database import TABLES, Database
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.insight_repository import InsightRepository
 from app.repositories.municipality_repository import MunicipalityRepository
+from app.repositories.setting_repository import SettingRepository
 from app.repositories.weather_repository import WeatherRepository
 from app.services.analysis_service import AnalysisService
 from app.services.chat_service import ChatService
 from app.services.collection_service import CollectionService
 from app.services.conversation_service import ConversationService
 from app.services.forecast_service import ForecastService
+from app.services.gpu_tunnel import GpuTunnel
 from app.services.insight_service import InsightService
+from app.services.model_selector import ModelSelector
 from app.services.scheduler import Scheduler
 from app.services.tools import ToolExecutor
-from tests.fakes import FakeIbge, FakeModel, FakeRainSource, ImmediateExecutor
+from tests.fakes import FakeGpu, FakeIbge, FakeModel, FakeOllamaServer, FakeRainSource, ImmediateExecutor
 
 TODAY = date(2024, 12, 15)
 TZ = ZoneInfo("America/Sao_Paulo")
-
-
-class FakeOllamaStatus:
-    """Só o que as rotas de estado usam do OllamaService."""
-
-    def __init__(self, installed: bool = True, tools: bool = True, error=None):
-        self.installed = installed
-        self.tools = tools
-        self.error = error
-
-    def is_installed(self, model, installed=None):
-        if self.error:
-            raise self.error
-        return self.installed
-
-    def capabilities(self):
-        return ["completion", "tools"] if self.tools else ["completion"]
 
 
 @pytest.fixture(scope="session")
@@ -93,12 +79,37 @@ def model() -> FakeModel:
 
 
 @pytest.fixture
+def ollama_servers() -> dict[str, FakeOllamaServer]:
+    """Os dois Ollama: o deste computador e o da GPU externa."""
+    return {"local": FakeOllamaServer("local"), "externo": FakeOllamaServer("externo")}
+
+
+@pytest.fixture
+def gpu() -> FakeGpu:
+    """A GPU externa cadastrada e conectada; os testes mudam `configured` e `connected`."""
+    return FakeGpu()
+
+
+@pytest.fixture
+def selector(ollama_servers, gpu, database) -> ModelSelector:
+    return ModelSelector(ollama_servers, gpu, SettingRepository(database), "qwen3:8b", ImmediateExecutor())  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def gpu_tunnel(database, tmp_path) -> GpuTunnel:
+    """O túnel de verdade, com a chave numa pasta temporária (não conecta até alguém pedir)."""
+    tunnel = GpuTunnel(SettingRepository(database), tmp_path / "ssh", 0, listen_host="127.0.0.1", connect_timeout=5)
+    yield tunnel
+    tunnel.stop()
+
+
+@pytest.fixture
 def executor():
     return ImmediateExecutor()
 
 
 @pytest.fixture
-def container(settings, database, rain, ibge, model, executor, clock) -> Container:
+def container(settings, database, rain, ibge, model, executor, clock, selector, gpu_tunnel) -> Container:
     municipalities = MunicipalityRepository(database)
     weather = WeatherRepository(database)
     crops = CropRepository(database)
@@ -112,7 +123,6 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         analyses,
         ForecastRepository(database),
         model,
-        "modelo-teste",
         ImmediateExecutor(),
         lambda: TODAY,
     )
@@ -122,7 +132,6 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         insights_repository,
         analyses,
         model,
-        "modelo-teste",
         ImmediateExecutor(),
         lambda: TODAY,
         forecasts,
@@ -137,7 +146,8 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         municipalities=municipalities,
         runs=runs,
         insights_repository=insights_repository,
-        ollama=FakeOllamaStatus(),  # type: ignore[arg-type]
+        ollama=selector,
+        gpu=gpu_tunnel,
         analyses=analyses,
         forecasts=forecasts,
         collections=collections,

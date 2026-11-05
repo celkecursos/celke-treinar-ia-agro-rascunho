@@ -83,7 +83,6 @@ class ForecastService:
         analyses: AnalysisService,
         repository: ForecastRepository,
         model: LanguageModel,
-        model_name: str,
         executor: Executor,
         today: Callable[[], date],
     ):
@@ -93,7 +92,6 @@ class ForecastService:
         self._analyses = analyses
         self._repository = repository
         self._model = model
-        self._model_name = model_name
         self._executor = executor
         self._today = today
         self._training = threading.Lock()
@@ -148,7 +146,7 @@ class ForecastService:
             return 0
         if result is None:
             return 0
-        forecast_id = self._repository.save(result, trigger=trigger, model=self._model_name)
+        forecast_id = self._repository.save(result, trigger=trigger, model=self._model.name)
         self._explain(forecast_id, result)
         return 1
 

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analyses, chat, collections, conversations, forecasts, insights, municipalities, status
+from app.api import analyses, chat, collections, conversations, forecasts, gpu, insights, municipalities, ollama, status
 from app.core.config import Settings, get_settings
 from app.core.container import Container, build_container
 from app.core.errors import register_error_handlers
@@ -26,7 +26,9 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         if interrupted:
             logger.warning("%d coleta(s) ou geração(ões) interrompidas marcadas como erro", interrupted)
         c.scheduler.start()
+        c.gpu.start()  # reabre o túnel da GPU externa, se estava conectado
         yield
+        c.gpu.stop()
         c.scheduler.stop()
         for executor in c.executors:
             executor.shutdown(wait=False, cancel_futures=True)
@@ -36,7 +38,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     app = FastAPI(
         title="Celke Treinar IA Agro",
         description="API que coleta chuva (Open-Meteo) e produção de soja e milho (IBGE), cruza os dados e conversa "
-        "sobre eles com um modelo de IA local (Ollama) que usa ferramentas.",
+        "sobre eles com um modelo de IA (Ollama, local ou numa GPU externa) que usa ferramentas.",
         version="1.0.0",
         docs_url="/api/docs",
         redoc_url=None,
@@ -53,7 +55,18 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     register_error_handlers(app)
 
     api = APIRouter(prefix="/api")
-    for module in (status, municipalities, collections, analyses, forecasts, insights, chat, conversations):
+    for module in (
+        status,
+        ollama,
+        gpu,
+        municipalities,
+        collections,
+        analyses,
+        forecasts,
+        insights,
+        chat,
+        conversations,
+    ):
         api.include_router(module.router)
     app.include_router(api)
     return app

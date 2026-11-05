@@ -18,10 +18,11 @@ Na ordem:
    quando treina, onde aparece), um exemplo real com números, o que **não** é treinado (números ficam no banco e nas
    ferramentas) e os três papéis da IA (responder, descobrir, avisar).
 4. **Fine-tuning do modelo de linguagem (GPU)**: os 5 comandos (exportar, avaliar antes, treinar, criar o modelo,
-   avaliar depois), como usar `CHAT_MODEL=celke-agro` e o que esperar.
+   avaliar depois), como escolher o `celke-agro` na página **Modelo de IA** (botão **Configurar** no Status) e o que esperar.
 5. Funcionalidades, arquitetura (diagrama e tabela de serviços), fontes de dados (com licença e limite do
    Open-Meteo), método (janelas, veranico, desvio da tendência, chuva da UF, filtro das descobertas, limites),
-   configuração (tabela de todas as variáveis), testes, comandos úteis, hardware e escolha do modelo, problemas
+   configuração (tabela de todas as variáveis), testes, comandos úteis, hardware e escolha do modelo (troca pelo
+   página Modelo de IA e o que conferir num modelo maior: memória, tempo, contexto e base do fine-tuning), problemas
    comuns, segurança e privacidade, evolução do projeto (talhão, previsão por talhão), estrutura e os prompts.
 
 ## `CLAUDE.md`

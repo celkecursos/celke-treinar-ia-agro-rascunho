@@ -23,18 +23,12 @@ fi
 echo "Subindo os serviços (a primeira vez constrói as imagens e pode levar alguns minutos)..."
 docker compose up -d --build
 
-if docker compose config --services | grep -qx ollama-init; then
-  echo "Aguardando o modelo (o download só acontece na primeira vez; são de 5 a 9 GB)."
-  echo "Para ver o progresso, em outro terminal: docker compose logs -f ollama-init"
-  status=$(docker wait celke-treinar-ia-agro-ollama-init-1)
-  if [ "$status" != "0" ]; then
-    echo "Falha ao baixar o modelo. Veja: docker compose logs ollama-init"
-    exit 1
-  fi
-else
-  # compose.externo.yaml: o modelo roda na GPU externa, pelo túnel SSH
-  echo "Modelo na GPU externa: confira o túnel com docker compose logs gpu-tunnel."
-  echo "O modelo precisa estar baixado no servidor (lá: ollama pull <modelo de CHAT_MODEL>)."
+echo "Aguardando o modelo (o download só acontece na primeira vez; são de 5 a 9 GB)."
+echo "Para ver o progresso, em outro terminal: docker compose logs -f ollama-init"
+status=$(docker wait celke-treinar-ia-agro-ollama-init-1)
+if [ "$status" != "0" ]; then
+  echo "Falha ao baixar o modelo. Veja: docker compose logs ollama-init"
+  exit 1
 fi
 
 echo "Verificando a API..."

@@ -85,14 +85,10 @@ APP_BIND=127.0.0.1
 # COMPOSE_FILE=compose.yaml;compose.gpu.yaml
 # COMPOSE_FILE=compose.yaml:compose.gpu.yaml
 
-# GPU externa (ex.: instância de GPU da Hostinger com o app Ollama): o modelo roda no servidor, por um túnel SSH, e o
-# Ollama deste computador não sobe. Use no lugar das linhas acima. Ver "GPU externa" no README.
-# COMPOSE_FILE=compose.yaml;compose.externo.yaml
-# COMPOSE_FILE=compose.yaml:compose.externo.yaml
-# Usuário e IP do servidor, porta SSH e a chave privada que o servidor aceita
-# GPU_SSH=root@203.0.113.10
-# GPU_SSH_PORT=22
-# GPU_SSH_KEY=~/.ssh/id_ed25519
+# GPU externa (ex.: instância de GPU da Hostinger com o app Ollama): nada aqui. Cadastre o servidor na página
+# Modelo de IA (card "GPU externa"): o backend gera a chave SSH, abre o túnel e a escolha do modelo fica no mesmo lugar.
+# Porta do túnel dentro da rede do Docker (não é publicada); mude só se outra coisa usar a 11435 no backend.
+# GPU_TUNNEL_PORT=11435
 
 # PostgreSQL. Obrigatório: os scripts/iniciar.* geram uma senha aleatória no .env na primeira vez. O banco
 # não tem porta publicada; a senha vale só na criação do volume postgres-data.
@@ -100,8 +96,9 @@ POSTGRES_PASSWORD=
 POSTGRES_DB=celke_agro
 POSTGRES_USER=celke
 
-# Modelo do Ollama (baixado pelo serviço ollama-init na primeira subida). Precisa aceitar ferramentas
-# (tool calling). qwen3:8b roda em CPU com 16 GB de RAM; qwen3:14b pede GPU com 12 GB.
+# Modelo inicial do Ollama (baixado pelo serviço ollama-init na primeira subida). Precisa aceitar ferramentas
+# (tool calling). qwen3:8b roda em CPU com 16 GB de RAM; qwen3:14b pede GPU com 12 GB. Depois, o modelo em uso se
+# troca na página Modelo de IA (Status e coletas > Configurar), que também baixa outros modelos; a escolha fica guardada no banco.
 CHAT_MODEL=qwen3:8b
 # Janela de contexto do modelo (tokens). Mais contexto = mais memória.
 CHAT_NUM_CTX=8192
@@ -164,8 +161,9 @@ name: celke-treinar-ia-agro
 
 # Variáveis do backend, usadas também pelas ferramentas do fine-tuning.
 x-backend-environment: &backend-environment
-  # Ollama local; com a GPU externa, o compose.externo.yaml troca pelo túnel SSH
+  # Ollama local. A GPU externa (túnel SSH aberto pelo backend) e o modelo em uso se configuram na página Modelo de IA.
   OLLAMA_URL: http://ollama:11434
+  GPU_TUNNEL_PORT: ${GPU_TUNNEL_PORT:-11435}
   OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
   CHAT_MODEL: ${CHAT_MODEL:-qwen3:8b}
   CHAT_NUM_CTX: ${CHAT_NUM_CTX:-8192}
@@ -209,6 +207,9 @@ services:
       context: ./backend
       target: runtime
     environment: *backend-environment
+    volumes:
+      # chave SSH que o backend gera para a GPU externa (a privada nunca sai do volume)
+      - backend-ssh:/data/ssh
     depends_on:
       postgres:
         condition: service_healthy
@@ -274,6 +275,7 @@ services:
   # Fine-tuning (etapa opcional): dataset e avaliação no container do backend.
   # docker compose --profile finetune run --rm finetune-tools exportar
   # docker compose --profile finetune run --rm finetune-tools avaliar --modelo qwen3:8b
+  # Na GPU externa (túnel aberto na página Modelo de IA), acrescente -e OLLAMA_URL=http://backend:11435
   finetune-tools:
     profiles: [finetune]
     build:
@@ -351,6 +353,7 @@ services:
 volumes:
   ollama-models:
   postgres-data:
+  backend-ssh:
 ``````
 
 `compose.gpu.yaml`:
@@ -368,69 +371,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-``````
-
-`compose.externo.yaml`:
-
-``````yaml
-# Modelo de IA numa GPU externa (por exemplo, uma instância de GPU da Hostinger com o app Ollama), sem o Ollama local.
-# O serviço gpu-tunnel abre um túnel SSH até o servidor, dentro da rede do Docker: a porta do Ollama não fica aberta
-# na internet nem na sua rede local. No .env: GPU_SSH=root@<ip-do-servidor>, GPU_SSH_KEY=<caminho da chave privada> e
-# COMPOSE_FILE=compose.yaml;compose.externo.yaml (no Linux, separe com ":"). O modelo de CHAT_MODEL precisa estar
-# baixado no servidor (ollama pull). Ver "GPU externa" no README.
-services:
-  gpu-tunnel:
-    image: alpine:3.22
-    environment:
-      GPU_SSH: ${GPU_SSH:?defina GPU_SSH=usuario@ip-do-servidor no .env}
-      GPU_SSH_PORT: ${GPU_SSH_PORT:-22}
-    volumes:
-      - ${GPU_SSH_KEY:-~/.ssh/id_ed25519}:/run/chave:ro
-      - gpu-tunnel-known-hosts:/root/.ssh
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        apk add --no-cache openssh-client > /dev/null
-        # o ssh exige a chave só legível pelo dono; o arquivo montado pode vir com outra permissão (Windows)
-        install -m 600 /run/chave /tmp/chave
-        echo "Abrindo o túnel até $$GPU_SSH..."
-        exec ssh -N -p "$$GPU_SSH_PORT" -i /tmp/chave -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-          -o StrictHostKeyChecking=accept-new -L 0.0.0.0:11434:127.0.0.1:11434 "$$GPU_SSH"
-    healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "11434"]
-      interval: 10s
-      timeout: 5s
-      start_period: 20s
-      retries: 6
-    restart: unless-stopped
-
-  # o Ollama local e o download do modelo só sobem com --profile ollama-local
-  ollama:
-    profiles: [ollama-local]
-  ollama-init:
-    profiles: [ollama-local]
-
-  backend:
-    environment:
-      OLLAMA_URL: http://gpu-tunnel:11434
-    depends_on: !reset
-      postgres:
-        condition: service_healthy
-      gpu-tunnel:
-        condition: service_started
-
-  finetune-tools:
-    environment:
-      OLLAMA_URL: http://gpu-tunnel:11434
-    depends_on: !reset
-      postgres:
-        condition: service_healthy
-      gpu-tunnel:
-        condition: service_started
-
-volumes:
-  # chave do servidor aceita na primeira conexão; uma troca depois disso bloqueia o túnel
-  gpu-tunnel-known-hosts:
 ``````
 
 `compose.dev.yaml`:
@@ -472,18 +412,12 @@ fi
 echo "Subindo os serviços (a primeira vez constrói as imagens e pode levar alguns minutos)..."
 docker compose up -d --build
 
-if docker compose config --services | grep -qx ollama-init; then
-  echo "Aguardando o modelo (o download só acontece na primeira vez; são de 5 a 9 GB)."
-  echo "Para ver o progresso, em outro terminal: docker compose logs -f ollama-init"
-  status=$(docker wait celke-treinar-ia-agro-ollama-init-1)
-  if [ "$status" != "0" ]; then
-    echo "Falha ao baixar o modelo. Veja: docker compose logs ollama-init"
-    exit 1
-  fi
-else
-  # compose.externo.yaml: o modelo roda na GPU externa, pelo túnel SSH
-  echo "Modelo na GPU externa: confira o túnel com docker compose logs gpu-tunnel."
-  echo "O modelo precisa estar baixado no servidor (lá: ollama pull <modelo de CHAT_MODEL>)."
+echo "Aguardando o modelo (o download só acontece na primeira vez; são de 5 a 9 GB)."
+echo "Para ver o progresso, em outro terminal: docker compose logs -f ollama-init"
+status=$(docker wait celke-treinar-ia-agro-ollama-init-1)
+if [ "$status" != "0" ]; then
+  echo "Falha ao baixar o modelo. Veja: docker compose logs ollama-init"
+  exit 1
 fi
 
 echo "Verificando a API..."
@@ -536,19 +470,12 @@ Write-Host 'Subindo os servicos (a primeira vez constroi as imagens e pode levar
 docker compose up -d --build
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-$services = @(docker compose config --services)
-if ($services -contains 'ollama-init') {
-  Write-Host 'Aguardando o modelo (o download so acontece na primeira vez; sao de 5 a 9 GB).'
-  Write-Host 'Para ver o progresso, em outro terminal: docker compose logs -f ollama-init'
-  $status = docker wait celke-treinar-ia-agro-ollama-init-1
-  if ($status -ne '0') {
-    Write-Host 'Falha ao baixar o modelo. Veja: docker compose logs ollama-init'
-    exit 1
-  }
-} else {
-  # compose.externo.yaml: o modelo roda na GPU externa, pelo tunel SSH
-  Write-Host 'Modelo na GPU externa: confira o tunel com docker compose logs gpu-tunnel.'
-  Write-Host 'O modelo precisa estar baixado no servidor (la: ollama pull <modelo de CHAT_MODEL>).'
+Write-Host 'Aguardando o modelo (o download so acontece na primeira vez; sao de 5 a 9 GB).'
+Write-Host 'Para ver o progresso, em outro terminal: docker compose logs -f ollama-init'
+$status = docker wait celke-treinar-ia-agro-ollama-init-1
+if ($status -ne '0') {
+  Write-Host 'Falha ao baixar o modelo. Veja: docker compose logs ollama-init'
+  exit 1
 }
 
 $port = ((docker compose port frontend 80) -split ':')[-1]

@@ -110,7 +110,6 @@ class InsightService:
         insights: InsightRepository,
         analyses: AnalysisService,
         model: LanguageModel,
-        model_name: str,
         executor: Executor,
         today: Callable[[], date],
         forecasts: ForecastService | None = None,
@@ -121,7 +120,6 @@ class InsightService:
         self._insights = insights
         self._analyses = analyses
         self._model = model
-        self._model_name = model_name
         self._executor = executor
         self._today = today
         self._generating = threading.Lock()
@@ -303,7 +301,7 @@ class InsightService:
         return result
 
     def _generate(self) -> str | None:
-        report_id = self._insights.create_report(model=self._model_name)
+        report_id = self._insights.create_report(model=self._model.name)
         try:
             tests, discoveries = self.scan()
         except AppError as exc:

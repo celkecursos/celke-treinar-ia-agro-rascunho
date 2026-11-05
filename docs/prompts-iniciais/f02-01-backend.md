@@ -44,7 +44,9 @@ __pycache__/
 FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
-RUN useradd --create-home --uid 1000 app && chown app:app /app
+RUN useradd --create-home --uid 1000 app && chown app:app /app \
+  # chave SSH da GPU externa (volume backend-ssh), só legível pelo backend
+  && install -d -o app -g app -m 700 /data/ssh
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
@@ -233,6 +235,54 @@ def train(c: ContainerDep) -> Response:
     return Response(status_code=status.HTTP_202_ACCEPTED)
 ``````
 
+`backend/app/api/gpu.py`:
+
+``````python
+from fastapi import APIRouter
+
+from app.api.deps import ContainerDep
+from app.schemas.gpu import GpuPassword, GpuServer, GpuStatus
+
+router = APIRouter(prefix="/gpu", tags=["GPU externa"])
+
+
+@router.get("", response_model=GpuStatus, summary="Servidor da GPU externa, situação do túnel e chave pública")
+def gpu_status(c: ContainerDep) -> GpuStatus:
+    return c.gpu.status()
+
+
+@router.post("", response_model=GpuStatus, summary="Cadastra (ou troca) o servidor e conecta")
+def save_gpu(body: GpuServer, c: ContainerDep) -> GpuStatus:
+    return c.gpu.save(body.host.strip(), body.port, body.user.strip())
+
+
+@router.post("/connect", response_model=GpuStatus, summary="Abre o túnel SSH")
+def connect_gpu(c: ContainerDep) -> GpuStatus:
+    return c.gpu.connect()
+
+
+@router.post("/disconnect", response_model=GpuStatus, summary="Fecha o túnel SSH (o modelo volta para o local)")
+def disconnect_gpu(c: ContainerDep) -> GpuStatus:
+    c.ollama.use_local()
+    return c.gpu.disconnect()
+
+
+@router.post("/install-key", response_model=GpuStatus, summary="Instala a chave pública no servidor com a senha")
+def install_key(body: GpuPassword, c: ContainerDep) -> GpuStatus:
+    return c.gpu.install_key(body.password)
+
+
+@router.post("/accept-host-key", response_model=GpuStatus, summary="Aceita a chave nova do servidor")
+def accept_host_key(c: ContainerDep) -> GpuStatus:
+    return c.gpu.forget_host_key()
+
+
+@router.delete("", response_model=GpuStatus, summary="Remove o servidor cadastrado (o modelo volta para o local)")
+def remove_gpu(c: ContainerDep) -> GpuStatus:
+    c.ollama.use_local()
+    return c.gpu.remove()
+``````
+
 `backend/app/api/insights.py`:
 
 ``````python
@@ -318,16 +368,45 @@ def state_municipalities(state: str, c: ContainerDep) -> IbgeMunicipalityList:
     return IbgeMunicipalityList(items=c.collections.state_municipalities(state))
 ``````
 
+`backend/app/api/ollama.py`:
+
+``````python
+from fastapi import APIRouter, status
+
+from app.api.deps import ContainerDep
+from app.schemas.status import OllamaSelection, OllamaStatus, PullStatus
+
+router = APIRouter(prefix="/ollama", tags=["Modelo de IA"])
+
+
+@router.get("", response_model=OllamaStatus, summary="Ollama e modelo em uso, com os modelos de cada Ollama")
+def ollama_status(c: ContainerDep) -> OllamaStatus:
+    return c.ollama.status()
+
+
+@router.post("/selection", response_model=OllamaStatus, summary="Troca o Ollama (local ou GPU externa) e o modelo")
+def select_model(body: OllamaSelection, c: ContainerDep) -> OllamaStatus:
+    return c.ollama.select(body.location, body.model)
+
+
+@router.post(
+    "/pull",
+    response_model=PullStatus,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Baixa um modelo no Ollama escolhido (em segundo plano)",
+)
+def pull_model(body: OllamaSelection, c: ContainerDep) -> PullStatus:
+    return c.ollama.pull(body.location, body.model)
+``````
+
 `backend/app/api/status.py`:
 
 ``````python
-from urllib.parse import urlsplit
-
 from fastapi import APIRouter
 
 from app.api.deps import ContainerDep
 from app.core.errors import AppError
-from app.schemas.status import Health, ModelStatus, OllamaStatus, SchedulerStatus, ServiceStatus, SystemStatus
+from app.schemas.status import Health, SchedulerStatus, ServiceStatus, SystemStatus
 
 router = APIRouter(tags=["Estado"])
 
@@ -335,33 +414,6 @@ router = APIRouter(tags=["Estado"])
 @router.get("/health", response_model=Health, summary="Saúde da API")
 def health() -> Health:
     return Health(status="ok")
-
-
-def _location(url: str) -> str:
-    return "local" if urlsplit(url).hostname == "ollama" else "externo"
-
-
-def _ollama_status(c: ContainerDep) -> OllamaStatus:
-    name = c.settings.chat_model
-    location = _location(c.settings.ollama_url)
-    try:
-        installed = c.ollama.is_installed(name)
-    except AppError as exc:
-        message = exc.message
-        if location == "externo":
-            message += " Com a GPU externa, confira o túnel: docker compose logs gpu-tunnel"
-        return OllamaStatus(
-            online=False, chat_model=ModelStatus(name=name, installed=False), location=location, error=message
-        )
-    tools = None
-    if installed:
-        try:
-            tools = "tools" in c.ollama.capabilities()
-        except AppError:
-            tools = None
-    return OllamaStatus(
-        online=True, chat_model=ModelStatus(name=name, installed=installed, tools=tools), location=location
-    )
 
 
 @router.get("/status", response_model=SystemStatus, summary="Estado dos serviços e do agendador")
@@ -374,7 +426,8 @@ def system_status(c: ContainerDep) -> SystemStatus:
     s = c.settings
     return SystemStatus(
         backend=ServiceStatus(online=True),
-        ollama=_ollama_status(c),
+        ollama=c.ollama.status(),
+        gpu=c.gpu.status(),
         database=database,
         scheduler=SchedulerStatus(
             enabled=s.scheduler_enabled,
@@ -400,8 +453,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Ollama deste computador. O da GPU externa é cadastrado na página Modelo de IA, assim como qual dos dois usar e o
+    # modelo de cada um.
     ollama_url: str = "http://ollama:11434"
+    # GPU externa: chave SSH gerada pelo backend (volume backend-ssh) e porta do túnel dentro da rede do Docker
+    ssh_key_dir: str = "/data/ssh"
+    gpu_tunnel_port: int = 11435
     ollama_timeout_seconds: float = 300.0
+    # Modelo usado enquanto nenhum for escolhido na página Modelo de IA
     chat_model: str = "qwen3:8b"
     # Janela de contexto do modelo. O padrão do Ollama corta os resultados das ferramentas sem avisar.
     chat_num_ctx: int = 8192
@@ -467,6 +526,7 @@ def get_settings() -> Settings:
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.core.config import Settings
@@ -477,14 +537,17 @@ from app.repositories.database import Database
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.insight_repository import InsightRepository
 from app.repositories.municipality_repository import MunicipalityRepository
+from app.repositories.setting_repository import SettingRepository
 from app.repositories.weather_repository import WeatherRepository
 from app.services.analysis_service import AnalysisService
 from app.services.chat_service import ChatService
 from app.services.collection_service import CollectionService
 from app.services.conversation_service import ConversationService
 from app.services.forecast_service import ForecastService
+from app.services.gpu_tunnel import GpuTunnel
 from app.services.insight_service import InsightService
-from app.services.ollama_service import OllamaService
+from app.services.model_selector import ModelSelector
+from app.services.ollama_service import Location, OllamaService
 from app.services.public_data import Ibge, OpenMeteo, PublicDataClient
 from app.services.scheduler import Scheduler
 from app.services.tools import ToolExecutor
@@ -499,7 +562,8 @@ class Container:
     municipalities: MunicipalityRepository
     runs: CollectionRepository
     insights_repository: InsightRepository
-    ollama: OllamaService
+    ollama: ModelSelector
+    gpu: GpuTunnel
     analyses: AnalysisService
     forecasts: ForecastService
     collections: CollectionService
@@ -523,14 +587,27 @@ def build_container(settings: Settings) -> Container:
     runs = CollectionRepository(database)
     insights_repository = InsightRepository(database)
     conversations = ConversationRepository(database)
-    ollama = OllamaService(
-        host=settings.ollama_url,
-        timeout=settings.ollama_timeout_seconds,
-        chat_model=settings.chat_model,
-        num_ctx=settings.chat_num_ctx,
-        temperature=settings.chat_temperature,
-        think=settings.chat_think,
-    )
+    setting_repository = SettingRepository(database)
+    gpu = GpuTunnel(setting_repository, Path(settings.ssh_key_dir), settings.gpu_tunnel_port)
+    # o Ollama da GPU externa fica na porta do túnel, dentro do próprio container do backend
+    hosts: dict[Location, str] = {
+        "local": settings.ollama_url,
+        "externo": f"http://127.0.0.1:{settings.gpu_tunnel_port}",
+    }
+    servers = {
+        location: OllamaService(
+            location=location,
+            host=host,
+            timeout=settings.ollama_timeout_seconds,
+            num_ctx=settings.chat_num_ctx,
+            temperature=settings.chat_temperature,
+            think=settings.chat_think,
+        )
+        for location, host in hosts.items()
+    }
+    # Downloads de modelos pelo painel: um por Ollama
+    pull_executor = ThreadPoolExecutor(max_workers=len(servers), thread_name_prefix="download-modelo")
+    ollama = ModelSelector(servers, gpu, setting_repository, settings.chat_model, pull_executor)
     client = PublicDataClient(settings.http_timeout_seconds)
     analyses = AnalysisService(municipalities, weather, crops)
     # Coletas: o cadastro de um município e uma coleta pelo botão podem rodar juntos (fontes diferentes).
@@ -544,7 +621,6 @@ def build_container(settings: Settings) -> Container:
         analyses,
         ForecastRepository(database),
         ollama,
-        settings.chat_model,
         insight_executor,
         lambda: clock().date(),
     )
@@ -554,7 +630,6 @@ def build_container(settings: Settings) -> Container:
         insights_repository,
         analyses,
         ollama,
-        settings.chat_model,
         insight_executor,
         lambda: clock().date(),
         forecasts,
@@ -580,6 +655,7 @@ def build_container(settings: Settings) -> Container:
         runs=runs,
         insights_repository=insights_repository,
         ollama=ollama,
+        gpu=gpu,
         analyses=analyses,
         forecasts=forecasts,
         collections=collections,
@@ -587,7 +663,7 @@ def build_container(settings: Settings) -> Container:
         chat=chat,
         conversations=ConversationService(conversations),
         scheduler=Scheduler(settings, collections, runs, clock),
-        executors=[collection_executor, insight_executor],
+        executors=[collection_executor, insight_executor, pull_executor],
     )
 ``````
 
@@ -1388,7 +1464,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analyses, chat, collections, conversations, forecasts, insights, municipalities, status
+from app.api import analyses, chat, collections, conversations, forecasts, gpu, insights, municipalities, ollama, status
 from app.core.config import Settings, get_settings
 from app.core.container import Container, build_container
 from app.core.errors import register_error_handlers
@@ -1409,7 +1485,9 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         if interrupted:
             logger.warning("%d coleta(s) ou geração(ões) interrompidas marcadas como erro", interrupted)
         c.scheduler.start()
+        c.gpu.start()  # reabre o túnel da GPU externa, se estava conectado
         yield
+        c.gpu.stop()
         c.scheduler.stop()
         for executor in c.executors:
             executor.shutdown(wait=False, cancel_futures=True)
@@ -1419,7 +1497,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     app = FastAPI(
         title="Celke Treinar IA Agro",
         description="API que coleta chuva (Open-Meteo) e produção de soja e milho (IBGE), cruza os dados e conversa "
-        "sobre eles com um modelo de IA local (Ollama) que usa ferramentas.",
+        "sobre eles com um modelo de IA (Ollama, local ou numa GPU externa) que usa ferramentas.",
         version="1.0.0",
         docs_url="/api/docs",
         redoc_url=None,
@@ -1436,7 +1514,18 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     register_error_handlers(app)
 
     api = APIRouter(prefix="/api")
-    for module in (status, municipalities, collections, analyses, forecasts, insights, chat, conversations):
+    for module in (
+        status,
+        ollama,
+        gpu,
+        municipalities,
+        collections,
+        analyses,
+        forecasts,
+        insights,
+        chat,
+        conversations,
+    ):
         api.include_router(module.router)
     app.include_router(api)
     return app
@@ -1856,11 +1945,18 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages (conversation_id, seq);
+
+-- Escolhas feitas no painel (Ollama em uso e modelo de cada Ollama). Valem até a próxima troca, mesmo reiniciando.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 TABLES = (
     "municipalities, state_references, weather_daily, crop_yearly, crop_estimates, collection_runs, "
-    "discovery_reports, discoveries, alerts, forecast_models, conversations, messages"
+    "discovery_reports, discoveries, alerts, forecast_models, conversations, messages, app_settings"
 )
 
 
@@ -2297,6 +2393,37 @@ class MunicipalityRepository:
                 )
 ``````
 
+`backend/app/repositories/setting_repository.py`:
+
+``````python
+from app.repositories.database import Database
+
+
+class SettingRepository:
+    """Escolhas feitas no painel, guardadas como pares chave e valor."""
+
+    def __init__(self, database: Database):
+        self._db = database
+
+    def all(self) -> dict[str, str]:
+        with self._db.connection() as conn:
+            rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+
+    def save(self, values: dict[str, str]) -> None:
+        with self._db.connection() as conn:
+            for key, value in values.items():
+                conn.execute(
+                    "INSERT INTO app_settings (key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+                    (key, value),
+                )
+
+    def delete(self, keys: list[str]) -> None:
+        with self._db.connection() as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = ANY(%s)", (keys,))
+``````
+
 `backend/app/repositories/weather_repository.py`:
 
 ``````python
@@ -2641,6 +2768,45 @@ class ForecastView(BaseModel):
     training: bool = False
 ``````
 
+`backend/app/schemas/gpu.py`:
+
+``````python
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+# nao_configurado = sem servidor cadastrado; erro = a última tentativa falhou (a mensagem diz o que fazer)
+TunnelState = Literal["nao_configurado", "desconectado", "conectando", "conectado", "erro"]
+
+
+class GpuServer(BaseModel):
+    """Servidor da GPU externa (por exemplo, uma instância de GPU da Hostinger com o app Ollama)."""
+
+    host: str = Field(min_length=1, max_length=253, description="IP ou nome do servidor")
+    port: int = Field(default=22, ge=1, le=65535)
+    user: str = Field(default="root", min_length=1, max_length=32)
+
+
+class GpuPassword(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class GpuStatus(BaseModel):
+    configured: bool
+    host: str | None = None
+    port: int = 22
+    user: str = "root"
+    state: TunnelState
+    message: str | None = None
+    # chave pública do backend: cadastre no servidor (ou instale com a senha)
+    public_key: str
+    # chave do servidor aceita na primeira conexão
+    host_key_fingerprint: str | None = None
+    host_key_mismatch: bool = False
+    # porta do túnel dentro da rede do Docker (http://backend:<porta> para o finetune-tools)
+    tunnel_port: int
+``````
+
 `backend/app/schemas/insights.py`:
 
 ``````python
@@ -2751,7 +2917,14 @@ class IbgeMunicipalityList(BaseModel):
 ``````python
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.gpu import GpuStatus
+
+# local = Ollama deste computador; externo = GPU externa pelo túnel SSH (services/gpu_tunnel.py)
+OllamaLocation = Literal["local", "externo"]
+# Nome como o Ollama usa: "qwen3:14b", "hf.co/usuario/modelo:Q4_K_M", "celke-agro"
+MODEL_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._\-/:]{0,199}$"
 
 
 class Health(BaseModel):
@@ -2764,12 +2937,47 @@ class ModelStatus(BaseModel):
     tools: bool | None = None
 
 
+class InstalledModelInfo(BaseModel):
+    name: str
+    size_gb: float | None = None
+    parameter_size: str | None = None
+
+
+class PullStatus(BaseModel):
+    """Download de um modelo pelo painel. Fica na memória do backend: some ao reiniciar."""
+
+    model: str
+    status: Literal["baixando", "concluido", "erro"]
+    message: str | None = None
+    percent: float | None = None
+
+
+class OllamaServer(BaseModel):
+    location: OllamaLocation
+    label: str
+    # externo só fica configurado com o servidor cadastrado no card "GPU externa"
+    configured: bool
+    online: bool
+    models: list[InstalledModelInfo] = []
+    # modelo escolhido para este Ollama (usado quando ele for o Ollama em uso)
+    chat_model: str
+    error: str | None = None
+    pull: PullStatus | None = None
+
+
 class OllamaStatus(BaseModel):
+    """O Ollama e o modelo em uso no chat, nas descobertas, nos alertas e na explicação da previsão."""
+
     online: bool
     chat_model: ModelStatus
-    # externo = GPU externa pelo túnel SSH (compose.externo.yaml)
-    location: Literal["local", "externo"]
+    location: OllamaLocation
     error: str | None = None
+    servers: list[OllamaServer] = []
+
+
+class OllamaSelection(BaseModel):
+    location: OllamaLocation
+    model: str = Field(pattern=MODEL_NAME_PATTERN)
 
 
 class ServiceStatus(BaseModel):
@@ -2787,6 +2995,7 @@ class SchedulerStatus(BaseModel):
 class SystemStatus(BaseModel):
     backend: ServiceStatus
     ollama: OllamaStatus
+    gpu: GpuStatus
     database: ServiceStatus
     scheduler: SchedulerStatus
 ``````
@@ -4066,7 +4275,6 @@ class ForecastService:
         analyses: AnalysisService,
         repository: ForecastRepository,
         model: LanguageModel,
-        model_name: str,
         executor: Executor,
         today: Callable[[], date],
     ):
@@ -4076,7 +4284,6 @@ class ForecastService:
         self._analyses = analyses
         self._repository = repository
         self._model = model
-        self._model_name = model_name
         self._executor = executor
         self._today = today
         self._training = threading.Lock()
@@ -4131,7 +4338,7 @@ class ForecastService:
             return 0
         if result is None:
             return 0
-        forecast_id = self._repository.save(result, trigger=trigger, model=self._model_name)
+        forecast_id = self._repository.save(result, trigger=trigger, model=self._model.name)
         self._explain(forecast_id, result)
         return 1
 
@@ -4385,6 +4592,344 @@ class ForecastService:
         )
 ``````
 
+`backend/app/services/gpu_tunnel.py`:
+
+``````python
+"""Túnel SSH até a GPU externa, aberto pelo próprio backend e configurado na página Modelo de IA (Status e coletas > Configurar).
+
+O backend gera uma chave SSH própria (a privada fica no volume `backend-ssh` e nunca sai pela API; a pública aparece
+no painel para ser cadastrada no servidor). Conectado, o Ollama do servidor fica em `0.0.0.0:<GPU_TUNNEL_PORT>` dentro
+do container do backend: só a rede do Docker o alcança, e a porta do Ollama do servidor não precisa abrir na internet.
+A chave do servidor é aceita na primeira conexão e conferida nas seguintes; se mudar, o túnel não abre até a pessoa
+aceitar a nova no painel.
+"""
+
+import asyncio
+import contextlib
+import logging
+import re
+import shlex
+import threading
+from collections.abc import Coroutine
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import asyncssh
+
+from app.core.errors import AppError, ConflictError, InvalidDataError, OllamaUnavailableError
+from app.repositories.setting_repository import SettingRepository
+from app.schemas.gpu import GpuStatus, TunnelState
+
+logger = logging.getLogger(__name__)
+
+HOST_PATTERN = r"^([A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|[0-9A-Fa-f:]{2,39})$"
+USER_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"
+KEYS = ("gpu.host", "gpu.port", "gpu.user", "gpu.enabled", "gpu.host_key")
+KEY_COMMENT = "celke-treinar-ia-agro"
+FIRST_RETRY_SECONDS = 5
+MAX_RETRY_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class GpuConfig:
+    host: str
+    port: int
+    user: str
+
+    @property
+    def target(self) -> str:
+        return f"{self.user}@{self.host}" + (f":{self.port}" if self.port != 22 else "")
+
+    @property
+    def known_hosts_pattern(self) -> str:
+        return self.host if self.port == 22 else f"[{self.host}]:{self.port}"
+
+
+class GpuTunnel:
+    def __init__(
+        self,
+        settings: SettingRepository,
+        key_dir: Path,
+        listen_port: int,
+        *,
+        listen_host: str = "0.0.0.0",
+        remote_port: int = 11434,
+        connect_timeout: float = 15,
+    ):
+        self._settings = settings
+        self._key_path = key_dir / "id_ed25519"
+        self._listen = (listen_host, listen_port)
+        self._remote_port = remote_port
+        self._timeout = connect_timeout
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._task: asyncio.Task | None = None
+        self._lock = threading.RLock()
+        self._state: TunnelState = "desconectado"
+        self._message: str | None = None
+        self._host_key_mismatch = False
+
+    # Laço de eventos próprio, numa thread: as rotas são síncronas
+
+    def start(self) -> None:
+        with self._lock:
+            if self._loop is None:
+                self._loop = asyncio.new_event_loop()
+                threading.Thread(target=self._loop.run_forever, name="tunel-gpu", daemon=True).start()
+        try:
+            values = self._settings.all()
+        except AppError:
+            return
+        if self._config(values) and values.get("gpu.enabled") == "true":
+            self._start_supervisor()
+
+    def stop(self) -> None:
+        if self._loop is None:
+            return
+        self._run(self._cancel())
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop = None
+
+    def _run(self, coro: Coroutine[Any, Any, Any], timeout: float | None = None) -> Any:
+        if self._loop is None:
+            self.start()
+        assert self._loop is not None
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout or self._timeout + 15)
+
+    # Configuração
+
+    @staticmethod
+    def _config(values: dict[str, str]) -> GpuConfig | None:
+        if not values.get("gpu.host"):
+            return None
+        return GpuConfig(values["gpu.host"], int(values.get("gpu.port") or 22), values.get("gpu.user") or "root")
+
+    def config(self) -> GpuConfig | None:
+        return self._config(self._settings.all())
+
+    @property
+    def configured(self) -> bool:
+        try:
+            return self.config() is not None
+        except AppError:
+            return False
+
+    @property
+    def connected(self) -> bool:
+        return self._state == "conectado"
+
+    @property
+    def message(self) -> str | None:
+        return self._message
+
+    def public_key(self) -> str:
+        """A chave pública do backend, criada na primeira vez. É ela que o servidor precisa aceitar."""
+        with self._lock:
+            if not self._key_path.exists():
+                self._key_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                key = asyncssh.generate_private_key("ssh-ed25519", comment=KEY_COMMENT)
+                key.write_private_key(str(self._key_path))
+                self._key_path.chmod(0o600)
+                logger.info("Chave SSH da GPU externa criada em %s", self._key_path)
+            key = asyncssh.read_private_key(str(self._key_path))
+            return key.export_public_key().decode().strip()
+
+    def save(self, host: str, port: int, user: str) -> GpuStatus:
+        """Cadastra (ou troca) o servidor e conecta. Trocar o endereço esquece a chave do servidor anterior."""
+        if not re.fullmatch(HOST_PATTERN, host) or not re.fullmatch(USER_PATTERN, user) or not 0 < port < 65536:
+            raise InvalidDataError("Endereço, porta ou usuário inválido.")
+        old = self.config()
+        values = {"gpu.host": host, "gpu.port": str(port), "gpu.user": user, "gpu.enabled": "true"}
+        if old is None or (old.host, old.port) != (host, port):
+            values["gpu.host_key"] = ""
+        self._run(self._cancel())
+        self._settings.save(values)
+        self._start_supervisor()
+        return self.status()
+
+    def connect(self) -> GpuStatus:
+        if self.config() is None:
+            raise InvalidDataError("Cadastre o servidor da GPU externa antes de conectar.")
+        self._settings.save({"gpu.enabled": "true"})
+        self._run(self._cancel())
+        self._start_supervisor()
+        return self.status()
+
+    def disconnect(self) -> GpuStatus:
+        self._settings.save({"gpu.enabled": "false"})
+        self._run(self._cancel())
+        self._set(
+            "desconectado", "Desconectado. Desligue também a instância no painel do provedor para parar a cobrança."
+        )
+        return self.status()
+
+    def remove(self) -> GpuStatus:
+        self._run(self._cancel())
+        self._settings.delete(list(KEYS))
+        self._set("desconectado", None)
+        return self.status()
+
+    def forget_host_key(self) -> GpuStatus:
+        """Aceita a chave nova do servidor (por exemplo, a instância foi recriada com o mesmo IP)."""
+        self._settings.save({"gpu.host_key": ""})
+        self._host_key_mismatch = False
+        return self.connect()
+
+    def install_key(self, password: str) -> GpuStatus:
+        """Entra uma vez com a senha e acrescenta a chave pública ao `authorized_keys`. A senha não é guardada."""
+        config = self.config()
+        if config is None:
+            raise InvalidDataError("Cadastre o servidor da GPU externa antes de instalar a chave.")
+        public_key = self.public_key()
+        self._run(self._install_key(config, password, public_key))
+        return self.connect()
+
+    # Estado para a página Modelo de IA
+
+    def _set(self, state: TunnelState, message: str | None) -> None:
+        self._state, self._message = state, message
+
+    def status(self) -> GpuStatus:
+        try:
+            values = self._settings.all()
+        except AppError:
+            values = {}  # banco fora do ar: a página de Status mostra o banco vermelho
+        config = self._config(values)
+        fingerprint = None
+        if values.get("gpu.host_key"):
+            fingerprint = asyncssh.import_public_key(values["gpu.host_key"]).get_fingerprint()
+        return GpuStatus(
+            configured=config is not None,
+            host=config.host if config else None,
+            port=config.port if config else 22,
+            user=config.user if config else "root",
+            state=self._state if config else "nao_configurado",
+            message=self._message if config else None,
+            public_key=self.public_key(),
+            host_key_fingerprint=fingerprint,
+            host_key_mismatch=self._host_key_mismatch,
+            tunnel_port=self._listen[1],
+        )
+
+    # SSH
+
+    def _start_supervisor(self) -> None:
+        async def start() -> None:
+            self._task = asyncio.get_running_loop().create_task(self._supervise())
+
+        self._set("conectando", "Conectando…")
+        self._run(start())
+
+    async def _cancel(self) -> None:
+        if self._task and not self._task.done():
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+        self._task = None
+
+    async def _open(self, config: GpuConfig, **auth: Any) -> asyncssh.SSHClientConnection:
+        trusted = self._settings.all().get("gpu.host_key")
+        known_hosts = asyncssh.import_known_hosts(f"{config.known_hosts_pattern} {trusted}\n") if trusted else None
+        conn = await asyncio.wait_for(
+            asyncssh.connect(
+                config.host,
+                config.port,
+                username=config.user,
+                known_hosts=known_hosts,
+                agent_path=None,
+                keepalive_interval=30,
+                keepalive_count_max=3,
+                **auth,
+            ),
+            self._timeout,
+        )
+        if not trusted:  # primeira conexão: guarda a chave do servidor para conferir nas próximas
+            host_key = conn.get_server_host_key()
+            if host_key is not None:
+                self._settings.save({"gpu.host_key": host_key.export_public_key().decode().strip()})
+        self._host_key_mismatch = False
+        return conn
+
+    def _key_auth(self) -> dict[str, Any]:
+        self.public_key()  # cria a chave, se faltar
+        return {"client_keys": [str(self._key_path)], "password": None, "preferred_auth": "publickey"}
+
+    async def _supervise(self) -> None:
+        """Abre o túnel e o mantém aberto: se a conexão cair, tenta de novo com espera crescente."""
+        delay = FIRST_RETRY_SECONDS
+        while True:
+            config = self.config()
+            if config is None:
+                return
+            self._set("conectando", f"Conectando a {config.target}…")
+            try:
+                conn = await self._open(config, **self._key_auth())
+            except asyncssh.HostKeyNotVerifiable:
+                self._host_key_mismatch = True
+                self._set(
+                    "erro",
+                    "A chave do servidor mudou desde a primeira conexão. Se a instância foi recriada, aceite a chave "
+                    'nova ("Aceitar a chave nova"); se não, não conecte: pode ser outro servidor no mesmo endereço.',
+                )
+                return
+            except asyncssh.PermissionDenied:
+                self._set(
+                    "erro",
+                    "O servidor recusou a chave. Instale a chave com a senha do servidor ou cadastre a chave pública "
+                    "no painel do provedor e clique em Conectar.",
+                )
+                return
+            except (OSError, TimeoutError, asyncssh.Error) as exc:
+                reason = str(exc) or type(exc).__name__
+                self._set(
+                    "erro",
+                    f"Sem conexão com {config.target} ({reason}). A instância está ligada? Nova tentativa em {delay} s.",
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, MAX_RETRY_SECONDS)
+                continue
+            try:
+                await conn.forward_local_port(self._listen[0], self._listen[1], "127.0.0.1", self._remote_port)
+                self._set("conectado", f"Túnel aberto até {config.target}.")
+                logger.info("Túnel da GPU externa aberto até %s", config.target)
+                delay = FIRST_RETRY_SECONDS
+                await conn.wait_closed()
+                self._set("erro", f"A conexão com {config.target} caiu. Tentando de novo…")
+            except OSError as exc:
+                self._set("erro", f"Não foi possível abrir a porta do túnel: {exc}")
+                await asyncio.sleep(delay)
+            finally:
+                conn.close()
+
+    async def _install_key(self, config: GpuConfig, password: str, public_key: str) -> None:
+        try:
+            conn = await self._open(
+                config, password=password, client_keys=None, preferred_auth="password,keyboard-interactive"
+            )
+        except asyncssh.HostKeyNotVerifiable as exc:
+            self._host_key_mismatch = True
+            raise ConflictError(
+                "A chave do servidor mudou desde a primeira conexão. Aceite a chave nova antes."
+            ) from exc
+        except asyncssh.PermissionDenied as exc:
+            raise InvalidDataError("O servidor recusou o usuário ou a senha.") from exc
+        except (OSError, TimeoutError, asyncssh.Error) as exc:
+            raise OllamaUnavailableError(
+                f"Sem conexão com {config.target} ({exc or type(exc).__name__}). Confira o endereço e se a instância "
+                "está ligada."
+            ) from exc
+        quoted = shlex.quote(public_key)
+        command = (
+            "umask 077 && mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && "
+            f"(grep -qxF {quoted} ~/.ssh/authorized_keys || echo {quoted} >> ~/.ssh/authorized_keys)"
+        )
+        async with conn:
+            result = await conn.run(command, check=False)
+        if result.exit_status != 0:
+            raise InvalidDataError(f"O servidor não aceitou a instalação da chave: {str(result.stderr or '').strip()}")
+        logger.info("Chave SSH instalada em %s", config.target)
+``````
+
 `backend/app/services/insight_service.py`:
 
 ``````python
@@ -4500,7 +5045,6 @@ class InsightService:
         insights: InsightRepository,
         analyses: AnalysisService,
         model: LanguageModel,
-        model_name: str,
         executor: Executor,
         today: Callable[[], date],
         forecasts: ForecastService | None = None,
@@ -4511,7 +5055,6 @@ class InsightService:
         self._insights = insights
         self._analyses = analyses
         self._model = model
-        self._model_name = model_name
         self._executor = executor
         self._today = today
         self._generating = threading.Lock()
@@ -4693,7 +5236,7 @@ class InsightService:
         return result
 
     def _generate(self) -> str | None:
-        report_id = self._insights.create_report(model=self._model_name)
+        report_id = self._insights.create_report(model=self._model.name)
         try:
             tests, discoveries = self.scan()
         except AppError as exc:
@@ -4862,6 +5405,258 @@ class InsightService:
                 self._insights.set_explanation(alert_id, answer["explicacao"])
 ``````
 
+`backend/app/services/model_selector.py`:
+
+``````python
+"""Qual Ollama e qual modelo de linguagem a aplicação usa, escolhidos na página Modelo de IA (Status e coletas > Configurar).
+
+Os dois Ollama podem estar no ar ao mesmo tempo: o deste computador e o da GPU externa (pelo túnel SSH que o backend
+abre, `services/gpu_tunnel.py`). A escolha fica no banco e vale para o chat, as descobertas, os alertas e a explicação
+da previsão, sem reiniciar nada.
+"""
+
+import logging
+import threading
+from collections.abc import Iterator
+from concurrent.futures import Executor
+from typing import Protocol
+
+from app.core.errors import (
+    AppError,
+    ConflictError,
+    DatabaseUnavailableError,
+    InvalidDataError,
+    OllamaUnavailableError,
+)
+from app.repositories.setting_repository import SettingRepository
+from app.schemas.status import (
+    InstalledModelInfo,
+    ModelStatus,
+    OllamaLocation,
+    OllamaServer,
+    OllamaStatus,
+    PullStatus,
+)
+from app.services.ollama_service import ChatChunk, Messages, OllamaService, PullProgress, same_model
+
+logger = logging.getLogger(__name__)
+
+LOCATIONS: tuple[OllamaLocation, ...] = ("local", "externo")
+LOCATION_LABEL: dict[OllamaLocation, str] = {
+    "local": "Neste computador",
+    "externo": "GPU externa",
+}
+NOT_CONFIGURED = 'GPU externa não cadastrada. Cadastre o servidor no card "GPU externa" desta página.'
+DISCONNECTED = 'GPU externa desconectada. Conecte no card "GPU externa" desta página.'
+LOCATION_KEY = "ollama_location"
+
+
+class Tunnel(Protocol):
+    """O que o seletor usa do túnel da GPU externa."""
+
+    @property
+    def configured(self) -> bool: ...
+
+    @property
+    def connected(self) -> bool: ...
+
+    @property
+    def message(self) -> str | None: ...
+
+
+def _model_key(location: OllamaLocation) -> str:
+    return f"chat_model.{location}"
+
+
+def _percent(layers: dict[str, tuple[int, int]]) -> float | None:
+    total = sum(t for _, t in layers.values())
+    if not total:
+        return None
+    return round(100 * sum(c for c, _ in layers.values()) / total, 1)
+
+
+class ModelSelector:
+    """O modelo de linguagem em uso (implementa `LanguageModel`), a troca pelo painel e o download de modelos."""
+
+    def __init__(
+        self,
+        servers: dict[OllamaLocation, OllamaService],
+        gpu: Tunnel,
+        settings: SettingRepository,
+        default_model: str,
+        executor: Executor,
+    ):
+        self._servers = servers
+        self._gpu = gpu
+        self._settings = settings
+        self._executor = executor
+        self._location: OllamaLocation = "local"
+        self._models: dict[OllamaLocation, str] = dict.fromkeys(LOCATIONS, default_model)
+        self._loaded = False
+        self._lock = threading.Lock()
+        self._pulls: dict[OllamaLocation, PullStatus] = {}
+
+    # Escolha
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        try:
+            saved = self._settings.all()
+        except DatabaseUnavailableError:
+            return  # tenta de novo na próxima chamada; até lá, os valores do .env
+        for location in LOCATIONS:
+            if saved.get(_model_key(location)):
+                self._models[location] = saved[_model_key(location)]
+        if saved.get(LOCATION_KEY) in LOCATIONS:
+            self._location = saved[LOCATION_KEY]  # type: ignore[assignment]
+        self._loaded = True
+
+    def current(self) -> tuple[OllamaLocation, str]:
+        with self._lock:
+            self._load()
+            # escolhida a GPU externa e depois removido o servidor: volta para o local
+            location = self._location if self._configured(self._location) else "local"
+            return location, self._models[location]
+
+    @property
+    def name(self) -> str:
+        return self.current()[1]
+
+    def _configured(self, location: OllamaLocation) -> bool:
+        return location == "local" or self._gpu.configured
+
+    def _server(self, location: OllamaLocation) -> OllamaService:
+        if not self._configured(location):
+            raise InvalidDataError(NOT_CONFIGURED)
+        if location == "externo" and not self._gpu.connected:
+            raise OllamaUnavailableError(self._gpu.message or DISCONNECTED)
+        return self._servers[location]
+
+    def select(self, location: OllamaLocation, model: str) -> OllamaStatus:
+        """Troca o Ollama e o modelo em uso. O modelo precisa estar instalado nele e aceitar ferramentas."""
+        server = self._server(location)
+        if not server.is_installed(model):
+            raise InvalidDataError(
+                f'O modelo {model} não está instalado em "{LOCATION_LABEL[location]}". Baixe o modelo antes de usar.'
+            )
+        if "tools" not in server.capabilities(model):
+            raise InvalidDataError(
+                f"O modelo {model} não aceita ferramentas (tool calling), e o chat precisa delas. Escolha um modelo com "
+                'a etiqueta "tools" no Ollama, como o qwen3.'
+            )
+        with self._lock:
+            self._load()
+            self._settings.save({LOCATION_KEY: location, _model_key(location): model})
+            self._location = location
+            self._models[location] = model
+        logger.info("Modelo em uso: %s (%s)", model, location)
+        return self.status()
+
+    def use_local(self) -> None:
+        """Volta para o Ollama deste computador (GPU externa desconectada ou removida pelo painel)."""
+        with self._lock:
+            self._load()
+            if self._location == "local":
+                return
+            self._settings.save({LOCATION_KEY: "local"})
+            self._location = "local"
+        logger.info("GPU externa fora de uso: modelo em uso volta para %s (local)", self._models["local"])
+
+    # Download
+
+    def pull(self, location: OllamaLocation, model: str) -> PullStatus:
+        """Baixa o modelo no Ollama escolhido, em segundo plano. Um download por vez em cada Ollama."""
+        server = self._server(location)
+        with self._lock:
+            running = self._pulls.get(location)
+            if running and running.status == "baixando":
+                raise ConflictError(f"Já existe um download em andamento ({running.model}). Aguarde terminar.")
+            state = self._pulls[location] = PullStatus(model=model, status="baixando", message="Iniciando o download")
+        self._executor.submit(self._run_pull, server, location, model)
+        return state
+
+    def _run_pull(self, server: OllamaService, location: OllamaLocation, model: str) -> None:
+        layers: dict[str, tuple[int, int]] = {}
+        try:
+            for step in server.pull(model):
+                self._pull_step(location, model, step, layers)
+            self._pulls[location] = PullStatus(model=model, status="concluido", message="Modelo baixado", percent=100)
+        except AppError as exc:
+            self._pulls[location] = PullStatus(
+                model=model, status="erro", message=exc.message, percent=_percent(layers)
+            )
+        except Exception:
+            logger.exception("Erro no download do modelo %s (%s)", model, location)
+            self._pulls[location] = PullStatus(
+                model=model, status="erro", message="Erro inesperado no download. Veja: docker compose logs backend"
+            )
+
+    def _pull_step(
+        self, location: OllamaLocation, model: str, step: PullProgress, layers: dict[str, tuple[int, int]]
+    ) -> None:
+        if step.digest and step.total:
+            layers[step.digest] = (step.completed or 0, step.total)
+        message = "Baixando" if step.status.startswith("pulling ") and step.digest else step.status
+        self._pulls[location] = PullStatus(model=model, status="baixando", message=message, percent=_percent(layers))
+
+    # Estado para a página Modelo de IA e a de Status
+
+    def status(self) -> OllamaStatus:
+        location, model = self.current()
+        servers: list[OllamaServer] = []
+        installed: list = []
+        error: str | None = NOT_CONFIGURED
+        for loc in LOCATIONS:
+            entry = OllamaServer(
+                location=loc,
+                label=LOCATION_LABEL[loc],
+                configured=self._configured(loc),
+                online=False,
+                chat_model=self._models[loc],
+                error=NOT_CONFIGURED,
+                pull=self._pulls.get(loc),
+            )
+            if entry.configured:
+                try:
+                    # com o túnel fechado, nem tenta: a mensagem do túnel diz o que fazer
+                    models = self._server(loc).installed_models()
+                    entry.online, entry.error = True, None
+                    entry.models = [
+                        InstalledModelInfo(
+                            name=m.name,
+                            size_gb=round(m.size_bytes / 1e9, 1) if m.size_bytes else None,
+                            parameter_size=m.parameter_size,
+                        )
+                        for m in sorted(models, key=lambda m: m.name)
+                    ]
+                except AppError as exc:
+                    models, entry.error = [], exc.message
+                if loc == location:
+                    installed, error = models, entry.error
+            servers.append(entry)
+
+        chat_model = ModelStatus(name=model, installed=any(same_model(m.name, model) for m in installed))
+        if chat_model.installed:
+            try:
+                chat_model.tools = "tools" in self._servers[location].capabilities(model)
+            except AppError:
+                chat_model.tools = None
+        return OllamaStatus(
+            online=error is None, chat_model=chat_model, location=location, error=error, servers=servers
+        )
+
+    # LanguageModel: cada chamada vai para o Ollama e o modelo escolhidos no momento
+
+    def chat_stream(self, messages: Messages, tools: list[dict] | None = None) -> Iterator[ChatChunk]:
+        location, model = self.current()
+        yield from self._server(location).chat_stream(model, messages, tools)
+
+    def chat_json(self, messages: Messages, schema: dict) -> dict:
+        location, model = self.current()
+        return self._server(location).chat_json(model, messages, schema)
+``````
+
 `backend/app/services/ollama_service.py`:
 
 ``````python
@@ -4876,6 +5671,8 @@ import ollama
 from app.core.errors import ModelNotInstalledError, OllamaUnavailableError
 
 Messages = list[dict[str, Any]]
+# local = Ollama deste computador; externo = GPU externa pelo túnel SSH (services/gpu_tunnel.py)
+Location = Literal["local", "externo"]
 
 
 @dataclass(frozen=True)
@@ -4888,13 +5685,34 @@ class ChatChunk:
     arguments: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class InstalledModel:
+    name: str
+    size_bytes: int | None = None
+    # tamanho do modelo informado pelo Ollama, como "8.2B"
+    parameter_size: str | None = None
+
+
+@dataclass(frozen=True)
+class PullProgress:
+    """Um passo do download: `completed` e `total` (bytes) vêm por camada, identificada pelo `digest`."""
+
+    status: str
+    digest: str | None = None
+    completed: int | None = None
+    total: int | None = None
+
+
 class LanguageModel(Protocol):
+    @property
+    def name(self) -> str: ...
+
     def chat_stream(self, messages: Messages, tools: list[dict] | None = None) -> Iterator[ChatChunk]: ...
 
     def chat_json(self, messages: Messages, schema: dict) -> dict: ...
 
 
-def _same_model(installed: str, wanted: str) -> bool:
+def same_model(installed: str, wanted: str) -> bool:
     # "qwen3" é instalado como "qwen3:latest"
     if ":" not in wanted:
         wanted = f"{wanted}:latest"
@@ -4902,54 +5720,85 @@ def _same_model(installed: str, wanted: str) -> bool:
 
 
 class OllamaService:
-    """Acesso ao Ollama: estado, modelos instalados, chat com ferramentas (streaming) e respostas em JSON."""
+    """Um servidor Ollama (local ou GPU externa): modelos instalados, download, chat com ferramentas e JSON.
 
-    def __init__(self, host: str, timeout: float, chat_model: str, num_ctx: int, temperature: float, think: str):
+    O modelo vem em cada chamada: quem escolhe qual servidor e qual modelo usar é o `ModelSelector`.
+    """
+
+    def __init__(self, location: Location, host: str, timeout: float, num_ctx: int, temperature: float, think: str):
+        self.location: Location = location
         self._client = ollama.Client(host=host, timeout=timeout)
         self._quick = ollama.Client(host=host, timeout=5)
-        self.chat_model = chat_model
+        # o download de um modelo grande leva minutos: sem tempo limite de leitura
+        self._pulling = ollama.Client(host=host, timeout=httpx.Timeout(10, read=None))
         self._options = {"num_ctx": num_ctx, "temperature": temperature}
         self._think = think
-        self._capabilities: list[str] | None = None
+        self._capabilities: dict[str, list[str]] = {}
 
-    def installed_models(self) -> list[str]:
+    def _unavailable_message(self) -> str:
+        if self.location == "externo":
+            return (
+                "O túnel está aberto, mas o Ollama da GPU externa não respondeu. Confira no servidor se o Ollama está "
+                "rodando (systemctl status ollama) na porta 11434 e se o SSH permite encaminhar portas "
+                "(AllowTcpForwarding yes em /etc/ssh/sshd_config)."
+            )
+        return "Não foi possível conectar ao Ollama. Verifique se o container está rodando."
+
+    def _pull_hint(self, model: str) -> str:
+        where = "no servidor da GPU" if self.location == "externo" else "com docker compose exec ollama"
+        return f"Baixe na página Modelo de IA (Status e coletas > Configurar) ou {where}: ollama pull {model}"
+
+    def installed_models(self) -> list[InstalledModel]:
         try:
             response = self._quick.list()
         except (httpx.HTTPError, ConnectionError) as exc:
-            raise OllamaUnavailableError(
-                "Não foi possível conectar ao Ollama. Verifique se o container está rodando."
-            ) from exc
-        return [m.model for m in response.models if m.model]
+            raise OllamaUnavailableError(self._unavailable_message()) from exc
+        return [
+            InstalledModel(m.model, m.size, m.details.parameter_size if m.details else None)
+            for m in response.models
+            if m.model
+        ]
 
-    def is_installed(self, model: str, installed: list[str] | None = None) -> bool:
-        names = installed if installed is not None else self.installed_models()
-        return any(_same_model(name, model) for name in names)
+    def is_installed(self, model: str, installed: list[InstalledModel] | None = None) -> bool:
+        models = installed if installed is not None else self.installed_models()
+        return any(same_model(m.name, model) for m in models)
 
-    def capabilities(self) -> list[str]:
-        if self._capabilities is None:
+    def capabilities(self, model: str) -> list[str]:
+        if model not in self._capabilities:
             try:
-                self._capabilities = list(self._quick.show(self.chat_model).capabilities or [])
+                self._capabilities[model] = list(self._quick.show(model).capabilities or [])
             except Exception as exc:
-                raise self._translate(exc) from exc
-        return self._capabilities
+                raise self._translate(exc, model) from exc
+        return self._capabilities[model]
 
-    def _translate(self, exc: Exception) -> Exception:
-        model = self.chat_model
+    def pull(self, model: str) -> Iterator[PullProgress]:
+        """Baixa o modelo neste servidor, devolvendo o andamento. O Ollama retoma um download interrompido."""
+        self._capabilities.pop(model, None)
+        try:
+            for part in self._pulling.pull(model, stream=True):
+                yield PullProgress(part.status or "", part.digest, part.completed, part.total)
+        except Exception as exc:
+            if isinstance(exc, ollama.ResponseError) and "file does not exist" in str(exc.error):
+                raise ModelNotInstalledError(
+                    f"O modelo {model} não existe na biblioteca do Ollama. Confira o nome em https://ollama.com/library"
+                ) from exc
+            raise self._translate(exc, model) from exc
+
+    def _translate(self, exc: Exception, model: str) -> Exception:
         if isinstance(exc, ollama.ResponseError):
             if exc.status_code == 404:
                 return ModelNotInstalledError(
-                    f"O modelo {model} não está instalado no Ollama. Aguarde o download inicial "
-                    f"(serviço ollama-init) ou execute: docker compose exec ollama ollama pull {model}"
+                    f"O modelo {model} não está instalado neste Ollama. {self._pull_hint(model)}"
                 )
             if "does not support tools" in str(exc.error):
                 return ModelNotInstalledError(
-                    f"O modelo {model} não aceita ferramentas (tool calling). Use um modelo com a etiqueta "
-                    '"tools" no Ollama, como o qwen3, em CHAT_MODEL no .env.'
+                    f"O modelo {model} não aceita ferramentas (tool calling). Escolha na página Modelo de IA (Status e coletas > Configurar) um modelo "
+                    'com a etiqueta "tools" no Ollama, como o qwen3.'
                 )
             if "memory" in str(exc.error).lower():
                 return OllamaUnavailableError(
                     f"O Ollama não tem memória suficiente para carregar o modelo {model}. "
-                    "Feche outros programas ou configure um modelo menor."
+                    "Feche outros programas ou escolha um modelo menor na página Modelo de IA (Status e coletas > Configurar)."
                 )
             return OllamaUnavailableError(f"O Ollama retornou um erro: {exc.error}")
         if isinstance(exc, httpx.TimeoutException):
@@ -4957,23 +5806,23 @@ class OllamaService:
                 "O Ollama demorou demais para responder. Na primeira pergunta o modelo é carregado na memória; tente de novo."
             )
         if isinstance(exc, (httpx.HTTPError, ConnectionError)):
-            return OllamaUnavailableError("Não foi possível conectar ao Ollama. Verifique se o container está rodando.")
+            return OllamaUnavailableError(self._unavailable_message())
         return exc
 
-    def _use_thinking(self) -> bool:
+    def _use_thinking(self, model: str) -> bool:
         """`auto` liga o raciocínio separado quando o modelo tem essa capacidade."""
         if self._think in ("true", "false"):
             return self._think == "true"
-        return "thinking" in self.capabilities()
+        return "thinking" in self.capabilities(model)
 
-    def chat_stream(self, messages: Messages, tools: list[dict] | None = None) -> Iterator[ChatChunk]:
+    def chat_stream(self, model: str, messages: Messages, tools: list[dict] | None = None) -> Iterator[ChatChunk]:
         try:
             stream = self._client.chat(
-                model=self.chat_model,
+                model=model,
                 messages=messages,
                 tools=tools,
                 stream=True,
-                think=self._use_thinking(),
+                think=self._use_thinking(model),
                 options=self._options,
             )
             for part in stream:
@@ -4984,16 +5833,16 @@ class OllamaService:
                 for call in part.message.tool_calls or []:
                     yield ChatChunk("tool_call", name=call.function.name, arguments=dict(call.function.arguments or {}))
         except Exception as exc:
-            raise self._translate(exc) from exc
+            raise self._translate(exc, model) from exc
 
-    def chat_json(self, messages: Messages, schema: dict) -> dict:
+    def chat_json(self, model: str, messages: Messages, schema: dict) -> dict:
         """Resposta inteira (sem streaming) em JSON que segue o `schema` (saída estruturada do Ollama)."""
         try:
             response = self._client.chat(
-                model=self.chat_model, messages=messages, format=schema, think=False, options=self._options
+                model=model, messages=messages, format=schema, think=False, options=self._options
             )
         except Exception as exc:
-            raise self._translate(exc) from exc
+            raise self._translate(exc, model) from exc
         try:
             return json.loads(response.message.content or "{}")
         except json.JSONDecodeError as exc:
@@ -6341,6 +7190,8 @@ pydantic==2.14.2
 pydantic-settings==2.16.2
 ollama==0.6.3
 httpx==0.28.1
+# túnel SSH até a GPU externa, aberto pelo backend
+asyncssh==2.24.1
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
 # fusos horários do agendador (America/Sao_Paulo), também no Windows e em imagens sem tzdata
@@ -6366,36 +7217,22 @@ from app.repositories.database import TABLES, Database
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.insight_repository import InsightRepository
 from app.repositories.municipality_repository import MunicipalityRepository
+from app.repositories.setting_repository import SettingRepository
 from app.repositories.weather_repository import WeatherRepository
 from app.services.analysis_service import AnalysisService
 from app.services.chat_service import ChatService
 from app.services.collection_service import CollectionService
 from app.services.conversation_service import ConversationService
 from app.services.forecast_service import ForecastService
+from app.services.gpu_tunnel import GpuTunnel
 from app.services.insight_service import InsightService
+from app.services.model_selector import ModelSelector
 from app.services.scheduler import Scheduler
 from app.services.tools import ToolExecutor
-from tests.fakes import FakeIbge, FakeModel, FakeRainSource, ImmediateExecutor
+from tests.fakes import FakeGpu, FakeIbge, FakeModel, FakeOllamaServer, FakeRainSource, ImmediateExecutor
 
 TODAY = date(2024, 12, 15)
 TZ = ZoneInfo("America/Sao_Paulo")
-
-
-class FakeOllamaStatus:
-    """Só o que as rotas de estado usam do OllamaService."""
-
-    def __init__(self, installed: bool = True, tools: bool = True, error=None):
-        self.installed = installed
-        self.tools = tools
-        self.error = error
-
-    def is_installed(self, model, installed=None):
-        if self.error:
-            raise self.error
-        return self.installed
-
-    def capabilities(self):
-        return ["completion", "tools"] if self.tools else ["completion"]
 
 
 @pytest.fixture(scope="session")
@@ -6445,12 +7282,37 @@ def model() -> FakeModel:
 
 
 @pytest.fixture
+def ollama_servers() -> dict[str, FakeOllamaServer]:
+    """Os dois Ollama: o deste computador e o da GPU externa."""
+    return {"local": FakeOllamaServer("local"), "externo": FakeOllamaServer("externo")}
+
+
+@pytest.fixture
+def gpu() -> FakeGpu:
+    """A GPU externa cadastrada e conectada; os testes mudam `configured` e `connected`."""
+    return FakeGpu()
+
+
+@pytest.fixture
+def selector(ollama_servers, gpu, database) -> ModelSelector:
+    return ModelSelector(ollama_servers, gpu, SettingRepository(database), "qwen3:8b", ImmediateExecutor())  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def gpu_tunnel(database, tmp_path) -> GpuTunnel:
+    """O túnel de verdade, com a chave numa pasta temporária (não conecta até alguém pedir)."""
+    tunnel = GpuTunnel(SettingRepository(database), tmp_path / "ssh", 0, listen_host="127.0.0.1", connect_timeout=5)
+    yield tunnel
+    tunnel.stop()
+
+
+@pytest.fixture
 def executor():
     return ImmediateExecutor()
 
 
 @pytest.fixture
-def container(settings, database, rain, ibge, model, executor, clock) -> Container:
+def container(settings, database, rain, ibge, model, executor, clock, selector, gpu_tunnel) -> Container:
     municipalities = MunicipalityRepository(database)
     weather = WeatherRepository(database)
     crops = CropRepository(database)
@@ -6464,7 +7326,6 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         analyses,
         ForecastRepository(database),
         model,
-        "modelo-teste",
         ImmediateExecutor(),
         lambda: TODAY,
     )
@@ -6474,7 +7335,6 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         insights_repository,
         analyses,
         model,
-        "modelo-teste",
         ImmediateExecutor(),
         lambda: TODAY,
         forecasts,
@@ -6489,7 +7349,8 @@ def container(settings, database, rain, ibge, model, executor, clock) -> Contain
         municipalities=municipalities,
         runs=runs,
         insights_repository=insights_repository,
-        ollama=FakeOllamaStatus(),  # type: ignore[arg-type]
+        ollama=selector,
+        gpu=gpu_tunnel,
         analyses=analyses,
         forecasts=forecasts,
         collections=collections,
@@ -6533,7 +7394,7 @@ from datetime import date, timedelta
 from app.core.domain import CROPS, LSPA_PRODUCTS
 from app.core.errors import AppError
 from app.repositories.crop_repository import CropEstimate, CropYear
-from app.services.ollama_service import ChatChunk
+from app.services.ollama_service import ChatChunk, InstalledModel, PullProgress, same_model
 
 # mm por dia de chuva, por mês: chuvoso de outubro a março, seco no meio do ano
 MONTH_BASE = {1: 9, 2: 8, 3: 7, 4: 4, 5: 1.5, 6: 0.3, 7: 0.1, 8: 0.3, 9: 2, 10: 5, 11: 8, 12: 9}
@@ -6640,6 +7501,8 @@ class FakeIbge:
 class FakeModel:
     """Chat roteirizado: cada item de `rounds` é uma rodada (lista de pedaços). Depois do roteiro, responde texto."""
 
+    name = "modelo-teste"
+
     def __init__(self, rounds: list[list[ChatChunk]] | None = None, answer: str = "Resposta de teste."):
         self.rounds = list(rounds or [])
         self.answer = answer
@@ -6673,6 +7536,55 @@ class FakeModel:
                 "proximas_perguntas": ["Pergunta 1?", "Pergunta 2?"],
             }
         return {"explicacao": "Explicação de teste."}  # alertas e treino da previsão
+
+
+class FakeGpu:
+    """O túnel da GPU externa visto pelo `ModelSelector`: cadastrado, conectado e a mensagem."""
+
+    def __init__(self, configured: bool = True, connected: bool = True, message: str | None = None):
+        self.configured = configured
+        self.connected = connected
+        self.message = message
+
+
+class FakeOllamaServer:
+    """Um servidor Ollama falso para o `ModelSelector`: modelos instalados, capacidades, download e erro de conexão."""
+
+    def __init__(self, location: str, models: dict[str, list[str]] | None = None):
+        self.location = location
+        # nome do modelo -> capacidades
+        self.models = dict(models if models is not None else {"qwen3:8b": ["completion", "tools"]})
+        self.error: AppError | None = None
+        self.pull_error: AppError | None = None
+        self.chat_calls: list[str] = []
+
+    def installed_models(self) -> list[InstalledModel]:
+        if self.error:
+            raise self.error
+        return [InstalledModel(name, 5_200_000_000, "8.2B") for name in self.models]
+
+    def is_installed(self, model, installed=None) -> bool:
+        return any(same_model(m.name, model) for m in (installed or self.installed_models()))
+
+    def capabilities(self, model) -> list[str]:
+        return self.models[model]
+
+    def pull(self, model) -> Iterator[PullProgress]:
+        yield PullProgress("pulling manifest")
+        yield PullProgress("pulling abc", "sha256:abc", 50, 100)
+        if self.pull_error:
+            raise self.pull_error
+        yield PullProgress("pulling abc", "sha256:abc", 100, 100)
+        yield PullProgress("success")
+        self.models[model] = ["completion", "tools"]
+
+    def chat_stream(self, model, messages, tools=None) -> Iterator[ChatChunk]:
+        self.chat_calls.append(model)
+        yield ChatChunk("content", f"{self.location}:{model}")
+
+    def chat_json(self, model, messages, schema) -> dict:
+        self.chat_calls.append(model)
+        return {}
 
 
 def tool_call(name: str, **arguments) -> ChatChunk:
@@ -6828,14 +7740,8 @@ def test_status(client):
     assert data["backend"]["online"] is True
     assert data["database"]["online"] is True
     assert data["ollama"]["chat_model"]["tools"] is True
-    assert data["ollama"]["location"] == "local"
     assert data["scheduler"]["enabled"] is False
     assert client.get("/api/health").json() == {"status": "ok"}
-
-
-def test_status_with_external_gpu(client, settings):
-    settings.ollama_url = "http://gpu-tunnel:11434"
-    assert client.get("/api/status").json()["ollama"]["location"] == "externo"
 ``````
 
 `backend/tests/unit/test_chat.py`:
@@ -7328,6 +8234,250 @@ def test_train_button_validates_municipality_and_crop(client, registered):
     assert client.post("/api/forecasts/5218805/arroz/train").status_code == 404
 ``````
 
+`backend/tests/unit/test_gpu_tunnel.py`:
+
+``````python
+"""O túnel da GPU externa contra um servidor SSH de verdade (asyncssh), na própria máquina do teste.
+
+O servidor aceita a senha "senha" e as chaves de `authorized`, trata o comando de instalar a chave e encaminha a porta
+do túnel até um servidor de eco, no lugar do Ollama.
+"""
+
+import asyncio
+import re
+import socket
+import threading
+import time
+
+import asyncssh
+import pytest
+
+from app.core.errors import InvalidDataError
+from app.repositories.setting_repository import SettingRepository
+from app.services.gpu_tunnel import GpuTunnel
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class FakeSshServer:
+    def __init__(self):
+        self.authorized: set[str] = set()
+        self.commands: list[str] = []
+        self.port = free_port()
+        self.echo_port = free_port()
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever, daemon=True).start()
+        self._server = None
+        self._run(self._start_echo())
+        self.start()
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(10)
+
+    async def _start_echo(self):
+        async def echo(reader, writer):
+            writer.write(await reader.read(100))
+            await writer.drain()
+            writer.close()
+
+        self._echo = await asyncio.start_server(echo, "127.0.0.1", self.echo_port)
+
+    def start(self) -> None:
+        """Sobe (ou sobe de novo) com uma chave de servidor nova: como uma instância recriada no mesmo IP."""
+        outer = self
+
+        class Server(asyncssh.SSHServer):
+            def begin_auth(self, username):
+                return True
+
+            def password_auth_supported(self):
+                return True
+
+            def validate_password(self, username, password):
+                return username == "root" and password == "senha"
+
+            def public_key_auth_supported(self):
+                return True
+
+            def validate_public_key(self, username, key):
+                # como no authorized_keys: vale o tipo e a chave, não o comentário
+                offered = key.export_public_key().decode().split()[:2]
+                return any(k.split()[:2] == offered for k in outer.authorized)
+
+            def connection_requested(self, dest_host, dest_port, orig_host, orig_port):
+                return True
+
+        def handle(process):
+            outer.commands.append(process.command)
+            match = re.search(r"echo '([^']+)' >>", process.command)
+            if match:
+                outer.authorized.add(match.group(1))
+            process.exit(0)
+
+        async def start():
+            if self._server:
+                self._server.close()
+                await self._server.wait_closed()
+            self._server = await asyncssh.create_server(
+                Server,
+                "127.0.0.1",
+                self.port,
+                server_host_keys=[asyncssh.generate_private_key("ssh-ed25519")],
+                process_factory=handle,
+            )
+
+        self._run(start())
+
+    def stop(self) -> None:
+        async def stop():
+            self._server.close()
+            self._echo.close()
+
+        self._run(stop())
+        self._loop.call_soon_threadsafe(self._loop.stop)
+
+
+@pytest.fixture
+def ssh_server():
+    server = FakeSshServer()
+    yield server
+    server.stop()
+
+
+@pytest.fixture
+def tunnel(database, tmp_path, ssh_server):
+    t = GpuTunnel(
+        SettingRepository(database),
+        tmp_path / "ssh",
+        free_port(),
+        listen_host="127.0.0.1",
+        remote_port=ssh_server.echo_port,
+        connect_timeout=5,
+    )
+    yield t
+    t.stop()
+
+
+def wait_state(tunnel: GpuTunnel, *states: str) -> str:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if tunnel.status().state in states:
+            return tunnel.status().state
+        time.sleep(0.05)
+    raise AssertionError(f"Túnel parado em {tunnel.status().state}: {tunnel.status().message}")
+
+
+def through_tunnel(tunnel: GpuTunnel) -> bytes:
+    with socket.create_connection(("127.0.0.1", tunnel.status().tunnel_port), timeout=5) as s:
+        s.sendall(b"ollama")
+        return s.recv(100)
+
+
+def test_key_is_created_once_and_private_key_never_leaves(tunnel, tmp_path):
+    key = tunnel.public_key()
+    assert key.startswith("ssh-ed25519 ") and key.endswith("celke-treinar-ia-agro")
+    assert tunnel.public_key() == key
+    assert (tmp_path / "ssh" / "id_ed25519").stat().st_mode & 0o777 == 0o600
+    assert "PRIVATE" not in tunnel.status().model_dump_json()
+
+
+def test_not_configured(tunnel):
+    status = tunnel.status()
+    assert status.configured is False
+    assert status.state == "nao_configurado"
+    with pytest.raises(InvalidDataError):
+        tunnel.connect()
+    with pytest.raises(InvalidDataError):
+        tunnel.save("host com espaço", 22, "root")
+
+
+def test_install_key_with_password_and_open_tunnel(tunnel, ssh_server):
+    # sem a chave no servidor: recusa e para de tentar
+    tunnel.save("127.0.0.1", ssh_server.port, "root")
+    assert wait_state(tunnel, "erro", "conectado") == "erro"
+    assert "recusou a chave" in tunnel.status().message
+
+    with pytest.raises(InvalidDataError, match="usuário ou a senha"):
+        tunnel.install_key("errada")
+    tunnel.install_key("senha")
+    assert tunnel.public_key() in ssh_server.authorized
+    assert "senha" not in " ".join(ssh_server.commands)
+
+    assert wait_state(tunnel, "conectado", "erro") == "conectado"
+    assert through_tunnel(tunnel) == b"ollama"
+    status = tunnel.status()
+    assert status.host_key_fingerprint.startswith("SHA256:")
+    assert tunnel.connected
+
+    tunnel.disconnect()
+    assert tunnel.status().state == "desconectado"
+    with pytest.raises(OSError):
+        through_tunnel(tunnel)
+
+    tunnel.remove()
+    assert tunnel.status().state == "nao_configurado"
+
+
+def test_reconnects_after_restart_and_blocks_changed_host_key(tunnel, ssh_server, database, tmp_path):
+    ssh_server.authorized.add(tunnel.public_key())
+    tunnel.save("127.0.0.1", ssh_server.port, "root")
+    assert wait_state(tunnel, "conectado", "erro") == "conectado"
+    first = tunnel.status().host_key_fingerprint
+
+    # backend reiniciado: o túnel volta sozinho, porque estava conectado
+    tunnel.stop()
+    restarted = GpuTunnel(
+        SettingRepository(database),
+        tmp_path / "ssh",
+        tunnel.status().tunnel_port,
+        listen_host="127.0.0.1",
+        remote_port=ssh_server.echo_port,
+        connect_timeout=5,
+    )
+    try:
+        restarted.start()
+        assert wait_state(restarted, "conectado", "erro") == "conectado"
+        assert through_tunnel(restarted) == b"ollama"
+
+        # servidor com outra chave no mesmo endereço: não conecta até a pessoa aceitar a chave nova
+        restarted.disconnect()
+        ssh_server.start()
+        restarted.connect()
+        assert wait_state(restarted, "erro", "conectado") == "erro"
+        assert restarted.status().host_key_mismatch is True
+        assert "chave do servidor mudou" in restarted.status().message
+
+        restarted.forget_host_key()
+        assert wait_state(restarted, "conectado", "erro") == "conectado"
+        assert restarted.status().host_key_fingerprint != first
+    finally:
+        restarted.stop()
+
+
+def test_disconnect_and_remove_go_back_to_local(client, selector):
+    selector.select("externo", "qwen3:8b")
+    client.post("/api/gpu/disconnect")
+    assert selector.current() == ("local", "qwen3:8b")
+    selector.select("externo", "qwen3:8b")
+    client.delete("/api/gpu")
+    assert selector.current() == ("local", "qwen3:8b")
+
+
+def test_gpu_routes(client):
+    data = client.get("/api/gpu").json()
+    assert data["state"] == "nao_configurado"
+    assert data["public_key"].startswith("ssh-ed25519 ")
+    assert client.get("/api/status").json()["gpu"]["configured"] is False
+    response = client.post("/api/gpu", json={"host": "203.0.113.10; rm -rf /", "port": 22, "user": "root"})
+    assert response.status_code == 422
+    response = client.post("/api/gpu/connect")
+    assert response.status_code == 422
+``````
+
 `backend/tests/unit/test_insights.py`:
 
 ``````python
@@ -7395,6 +8545,125 @@ def test_alerts_are_deactivated_when_they_stop(client, registered, container):
     container.insights.update_alerts()
     assert client.get("/api/alerts").json()["items"] == []
     assert client.get("/api/alerts?include_inactive=true").json()["items"]
+``````
+
+`backend/tests/unit/test_ollama.py`:
+
+``````python
+from app.core.errors import ModelNotInstalledError, OllamaUnavailableError
+from app.repositories.setting_repository import SettingRepository
+from app.services.model_selector import ModelSelector
+from tests.fakes import ImmediateExecutor
+
+
+def test_default_is_local(client):
+    data = client.get("/api/ollama").json()
+    assert data["location"] == "local"
+    assert data["chat_model"] == {"name": "qwen3:8b", "installed": True, "tools": True}
+    assert [s["location"] for s in data["servers"]] == ["local", "externo"]
+    assert all(s["configured"] and s["online"] for s in data["servers"])
+    assert data["servers"][0]["models"] == [{"name": "qwen3:8b", "size_gb": 5.2, "parameter_size": "8.2B"}]
+
+
+def test_without_external_gpu(client, gpu):
+    gpu.configured = False
+    data = client.get("/api/status").json()["ollama"]
+    assert data["location"] == "local"
+    external = data["servers"][1]
+    assert external["configured"] is False
+    assert "Cadastre o servidor" in external["error"]
+    response = client.post("/api/ollama/selection", json={"location": "externo", "model": "qwen3:8b"})
+    assert response.status_code == 422
+    assert "não cadastrada" in response.json()["erro"]["mensagem"]
+
+
+def test_external_gpu_disconnected(client, gpu, selector):
+    gpu.connected, gpu.message = False, "Sem conexão com root@203.0.113.10"
+    selector.select("local", "qwen3:8b")
+    data = client.get("/api/ollama").json()
+    assert data["online"] is True
+    assert data["servers"][1]["online"] is False
+    assert data["servers"][1]["error"] == "Sem conexão com root@203.0.113.10"
+    response = client.post("/api/ollama/selection", json={"location": "externo", "model": "qwen3:8b"})
+    assert response.status_code == 503
+
+
+def test_select_saves_choice_and_routes_calls(client, ollama_servers, selector, gpu, database):
+    ollama_servers["externo"].models["qwen3:32b"] = ["completion", "tools"]
+    response = client.post("/api/ollama/selection", json={"location": "externo", "model": "qwen3:32b"})
+    assert response.status_code == 200, response.text
+    assert response.json()["chat_model"]["name"] == "qwen3:32b"
+
+    assert list(selector.chat_stream([{"role": "user", "content": "oi"}]))[0].text == "externo:qwen3:32b"
+    response = client.post("/api/ollama/selection", json={"location": "local", "model": "qwen3:8b"})
+    assert response.json()["location"] == "local"
+    assert selector.name == "qwen3:8b"
+    selector.chat_json([], {})
+    assert ollama_servers["local"].chat_calls == ["qwen3:8b"]
+
+    # a escolha fica no banco: um backend novo (reiniciado) continua com ela, e lembra o modelo de cada Ollama
+    restarted = ModelSelector(ollama_servers, gpu, SettingRepository(database), "qwen3:8b", ImmediateExecutor())  # type: ignore[arg-type]
+    assert restarted.current() == ("local", "qwen3:8b")
+    assert restarted.status().servers[1].chat_model == "qwen3:32b"
+
+
+def test_saved_external_choice_falls_back_to_local(selector, gpu):
+    selector.select("externo", "qwen3:8b")
+    assert selector.current() == ("externo", "qwen3:8b")
+    gpu.configured = False  # servidor removido no painel
+    assert selector.current() == ("local", "qwen3:8b")
+
+
+def test_select_rejects_missing_model_and_model_without_tools(client, ollama_servers):
+    response = client.post("/api/ollama/selection", json={"location": "local", "model": "qwen3:14b"})
+    assert response.status_code == 422
+    assert "não está instalado" in response.json()["erro"]["mensagem"]
+
+    ollama_servers["local"].models["gemma3:4b"] = ["completion"]
+    response = client.post("/api/ollama/selection", json={"location": "local", "model": "gemma3:4b"})
+    assert response.status_code == 422
+    assert "ferramentas" in response.json()["erro"]["mensagem"]
+
+    response = client.post("/api/ollama/selection", json={"location": "local", "model": "qwen3; rm -rf /"})
+    assert response.status_code == 422
+
+
+def test_select_with_offline_server(client, ollama_servers, selector):
+    selector.select("externo", "qwen3:8b")
+    ollama_servers["externo"].error = OllamaUnavailableError("GPU externa desligada")
+    response = client.post("/api/ollama/selection", json={"location": "externo", "model": "qwen3:8b"})
+    assert response.status_code == 503
+    data = client.get("/api/ollama").json()
+    assert data["online"] is False
+    assert data["error"] == "GPU externa desligada"
+    assert data["servers"][0]["online"] is True
+
+
+def test_pull_downloads_model(client, ollama_servers):
+    response = client.post("/api/ollama/pull", json={"location": "externo", "model": "qwen3:14b"})
+    assert response.status_code == 202, response.text
+    pull = client.get("/api/ollama").json()["servers"][1]["pull"]
+    assert pull == {"model": "qwen3:14b", "status": "concluido", "message": "Modelo baixado", "percent": 100.0}
+    assert "qwen3:14b" in ollama_servers["externo"].models
+    response = client.post("/api/ollama/selection", json={"location": "externo", "model": "qwen3:14b"})
+    assert response.status_code == 200
+
+
+def test_pull_error_keeps_progress(client, ollama_servers):
+    ollama_servers["local"].pull_error = ModelNotInstalledError("O modelo qwen9 não existe na biblioteca do Ollama.")
+    client.post("/api/ollama/pull", json={"location": "local", "model": "qwen9"})
+    pull = client.get("/api/ollama").json()["servers"][0]["pull"]
+    assert pull["status"] == "erro"
+    assert pull["percent"] == 50.0
+    assert "não existe" in pull["message"]
+
+
+def test_pull_conflict(client, selector):
+    from app.schemas.status import PullStatus
+
+    selector._pulls["local"] = PullStatus(model="qwen3:14b", status="baixando")
+    response = client.post("/api/ollama/pull", json={"location": "local", "model": "qwen3:32b"})
+    assert response.status_code == 409
 ``````
 
 `backend/tests/unit/test_public_data.py`:

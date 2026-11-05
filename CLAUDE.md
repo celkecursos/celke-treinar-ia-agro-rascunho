@@ -7,7 +7,7 @@ comandos e as variáveis de ambiente.
 |---|---|---|
 | `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL (psycopg 3) |
 | `finetuning/` | Treino LoRA na GPU e criação do modelo no Ollama | Python 3.12, Unsloth (versões fixas), Docker com GPU NVIDIA |
-| `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios e Status | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
+| `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e Modelo de IA | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
 | raiz | Docker Compose, scripts de inicialização | Docker Compose |
 | `docs/prompts-iniciais/` | Prompts que recriam o projeto do zero, sozinhos, com o conteúdo exato dos arquivos (gerados) | Markdown |
 | `docs/prompts/` | As mesmas etapas descritas em texto, para o tutorial | Markdown |
@@ -50,12 +50,17 @@ comandos e as variáveis de ambiente.
 - Mudou uma variável? Atualize `config.py`, `compose.yaml`, `.env.example` e a tabela do README juntos.
 - Só a porta do frontend é publicada, em `127.0.0.1`. Ollama, PostgreSQL e backend não têm porta publicada no
   `compose.yaml` (a do backend existe só no `compose.dev.yaml`).
-- GPU externa: o modelo do chat pode rodar num servidor alugado (`compose.externo.yaml`), sempre pelo túnel SSH do
-  serviço `gpu-tunnel`; nunca publique a porta do Ollama do servidor. O fine-tuning remoto é o
-  `finetuning/treinar_remoto.sh`. A página de Status diz se o Ollama é local ou externo (`ollama.location`).
+- GPU externa: toda pelo painel, nada no `.env`. O backend abre o túnel SSH (`services/gpu_tunnel.py`, asyncssh) com
+  a chave que ele gera no volume `backend-ssh`: a chave privada nunca sai pela API, a senha do servidor (instalar a
+  chave) nunca é guardada, e a chave do servidor é conferida depois da primeira conexão. A porta do túnel
+  (`GPU_TUNNEL_PORT`) fica só na rede do Docker; nunca publique a porta do Ollama do servidor. Os dois Ollama ficam no
+  ar e a página Modelo de IA (`/modelo-ia`, botão Configurar no card Serviços do Status) escolhe qual usar e o modelo de cada um (`services/model_selector.py`, guardado em
+  `app_settings`). O fine-tuning remoto é o `finetuning/treinar_remoto.sh` (sem argumento, usa o servidor do painel).
+- O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py` e, por SSH, o servidor da GPU
+  externa cadastrado no painel.
 - Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
-- O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py`, por HTTPS, e só envia
-  parâmetros de consulta (nomes de municípios, coordenadas, datas, códigos do IBGE).
+- Nas fontes públicas, o backend usa HTTPS e só envia parâmetros de consulta (nomes de municípios, coordenadas,
+  datas, códigos do IBGE).
 
 ## Backend
 

@@ -49,7 +49,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
   lightbulb, plus, sparkles, sprout, trash-2, wrench).
 - `layouts/AppLayout.tsx`: `Estrutura` com marca curta ("Celke Agro", subtítulo "Treinar IA") e o menu: Análises;
   **Inteligência**: Previsão (treino), Chat, Descobertas, Alertas; **Dados**: Municípios, Status e coletas. Rodapé com
-  as fontes (Open-Meteo CC BY 4.0 e IBGE).
+  as fontes (Open-Meteo CC BY 4.0 e IBGE) e onde roda a IA (este computador ou uma GPU externa).
 - `services/api.ts`: toda chamada à API, com `ApiError` e a mensagem do backend; `streamChat` com `fetch` e
   `AbortSignal`. `services/sse.ts`: leitura do streaming em blocos, com os eventos `conversation`, `thinking`,
   `tool_call`, `tool_result`, `chart`, `token`, `done` e `error`.
@@ -67,7 +67,8 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 | **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |
 | **Municípios** (`/municipios`) | Cadastro com `CampoUf` e `CampoCidade` (lista do IBGE pelo backend); tabela com situação e a mensagem do passo atual, período da chuva, último ano da produção, ações (ver análises, excluir); botão **Coletar chuva agora**; atualização a cada 3 s |
-| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; serviços (backend, Ollama, modelo com ferramentas, PostgreSQL, agendador) |
+| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; card **Serviços** com o botão **Configurar** fixo à direita do título (`ferramentas` do `Card`, não `acoes`, que só aparecem no hover) (abre `/modelo-ia`) e a lista (backend, Ollama em uso, modelo com ferramentas, PostgreSQL, agendador) |
+| **Modelo de IA** (`/modelo-ia`, fora do menu; aberta pelo **Configurar** do Status) | Cabeçalho com o botão de volta para o Status. Card **Modelo de IA** (`components/ModelCard.tsx`): em uso no subtítulo; `Escolha` "Onde o modelo roda" (Neste computador ou GPU externa, desabilitada sem configuração, com a dica do README); `CampoSelect` com os modelos instalados naquele Ollama (nome, parâmetros e GB) e a dica de memória por tamanho; **Usar este modelo**; `CampoTexto` e **Baixar** com `Progresso` do download (status a cada 2 s enquanto baixa ou conecta) e `Alerta` de concluído ou erro. Card **GPU externa** (`components/GpuCard.tsx`): `Status` do túnel; endereço, `CampoInteiro` da porta SSH e usuário com **Cadastrar e conectar**; `Alerta` com a mensagem do túnel; **Aceitar a chave nova do servidor** quando ela mudou; a chave pública em `<code>` com **Copiar** e a impressão digital da chave do servidor; `CampoSenha` e **Instalar a chave** enquanto não conecta; **Conectar** ou **Desconectar** e **Remover servidor** (com `useConfirmacao`, lembrando de desligar a instância no provedor). |
 
 Estilos próprios só em `src/styles.css`, com as variáveis do tema do Kole (`--surface`, `--t2`, `--t3`, `--border`,
 `--pri`…); nada de cor fixa. O chat ocupa exatamente a área de conteúdo e só a conversa rola.

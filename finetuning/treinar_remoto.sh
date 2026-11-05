@@ -2,16 +2,39 @@
 # Fine-tuning LoRA numa GPU externa (por exemplo, uma instância de GPU da Hostinger) por SSH: envia o dataset, treina
 # no servidor e traz o modelo treinado para finetuning/output/. Na raiz do projeto (Linux, macOS ou Git Bash no
 # Windows):
-#   ./finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]
+#   ./finetuning/treinar_remoto.sh                               # o servidor e a chave cadastrados na página Modelo de IA
+#   ./finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]   # outro servidor, com a sua chave (GPU_SSH_KEY)
 # Antes, gere o dataset: docker compose --profile finetune run --rm finetune-tools exportar
 # Com CRIAR_NO_SERVIDOR=1, cria também o modelo celke-agro no Ollama do servidor (para o chat na GPU externa).
 # A instância é cobrada por hora: apague-a no painel quando terminar.
 set -eu
 cd "$(dirname "$0")/.."
 
-destino="${1:?uso: ./finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]}"
-porta="${2:-${GPU_SSH_PORT:-22}}"
-chave="${GPU_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+if [ $# -ge 1 ]; then
+  destino="$1"
+  porta="${2:-${GPU_SSH_PORT:-22}}"
+  chave="${GPU_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+else
+  # Sem argumentos: usa a GPU externa da página Modelo de IA (card GPU externa) e a chave que o servidor
+  # já aceita, copiada do volume do backend para um arquivo temporário apagado no fim.
+  servidor=$(docker compose exec -T backend python -c "
+import json, urllib.request
+g = json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/gpu', timeout=10))
+print(f\"{g['user']}@{g['host']} {g['port']}\" if g['configured'] else '')
+" 2>/dev/null || true)
+  if [ -z "$servidor" ]; then
+    echo "Nenhuma GPU externa cadastrada. Cadastre em Status e coletas > Configurar > GPU externa, ou rode:"
+    echo "  ./finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]"
+    exit 1
+  fi
+  destino="${servidor% *}"
+  porta="${servidor##* }"
+  chave=$(mktemp)
+  trap 'rm -f "$chave"' EXIT INT TERM
+  docker compose exec -T backend cat /data/ssh/id_ed25519 > "$chave"
+  chmod 600 "$chave"
+  echo "GPU externa da página Modelo de IA: $destino (porta $porta)"
+fi
 # valores do .env, se existirem (sem sobrescrever os que já vieram do ambiente)
 if [ -f .env ]; then
   for nome in FINETUNE_BASE_MODEL FINETUNE_EPOCHS FINETUNE_MAX_SEQ_LENGTH CHAT_MODEL; do

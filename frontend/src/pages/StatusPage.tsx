@@ -1,5 +1,6 @@
 import { Alerta, Botao, CabecalhoPagina, Card, Tabela, formatDataHoraBr, useToast } from '@celke/kole-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { OnlineStatus, RunStatusLabel, TRIGGER_LABEL } from '../components/StatusLabel';
 import { usePolling } from '../hooks/usePolling';
 import { ApiError, api } from '../services/api';
@@ -13,10 +14,12 @@ const SOURCE_LABEL: Record<CollectionSource, string> = {
 
 export function StatusPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const status = usePolling(api.status, 10000);
   const collections = usePolling(api.collections, 4000);
   const [starting, setStarting] = useState<CollectionSource>();
   const s = status.data;
+  const currentServer = s?.ollama.servers.find((server) => server.location === s.ollama.location);
 
   async function collect(source: CollectionSource) {
     setStarting(source);
@@ -34,15 +37,15 @@ export function StatusPage() {
   return (
     <div className="app-pagina">
       <CabecalhoPagina titulo="Status e coletas" icone="activity">
-        Serviços, fontes de dados e o registro de cada coleta. A chuva é coletada todo dia; a produção e a estimativa da
-        safra, uma vez por mês. Use "Buscar agora" quando precisar do dado na hora.
+        Serviços, fontes de dados e o registro de cada coleta. A chuva é coletada todo dia; a produção e a
+        estimativa da safra, uma vez por mês. Use "Buscar agora" quando precisar do dado na hora.
       </CabecalhoPagina>
 
       {s && !s.ollama.online && (
         <Alerta
           severidade="err"
           titulo={s.ollama.location === 'externo' ? 'GPU externa desconectada' : 'Ollama desconectado'}
-          mensagem={s.ollama.error ?? 'Veja: docker compose logs ollama'}
+          mensagem={`${s.ollama.error ?? 'Veja: docker compose logs ollama'} Ou escolha outro Ollama em Configurar (Serviços).`}
         />
       )}
       {s?.ollama.online && !s.ollama.chat_model.installed && (
@@ -51,7 +54,7 @@ export function StatusPage() {
           titulo="Modelo ainda não instalado"
           mensagem={
             s.ollama.location === 'externo'
-              ? `Baixe o modelo no servidor da GPU: ollama pull ${s.ollama.chat_model.name}`
+              ? `Baixe ${s.ollama.chat_model.name} em Configurar (Serviços) ou escolha um modelo já instalado no servidor.`
               : 'O download inicial pode levar alguns minutos. Acompanhe com: docker compose logs -f ollama-init'
           }
         />
@@ -60,7 +63,7 @@ export function StatusPage() {
         <Alerta
           severidade="err"
           titulo="O modelo não aceita ferramentas"
-          mensagem="O chat precisa de um modelo com tool calling (etiqueta tools no Ollama). Troque CHAT_MODEL no .env."
+          mensagem='O chat precisa de um modelo com tool calling (etiqueta tools no Ollama). Troque em Configurar (Serviços).'
         />
       )}
 
@@ -122,7 +125,20 @@ export function StatusPage() {
         />
       </Card>
 
-      <Card titulo="Serviços" subtitulo="Atualizado a cada 10 segundos">
+      <Card
+        titulo="Serviços"
+        subtitulo="Atualizado a cada 10 segundos"
+        ferramentas={
+          <Botao
+            rotulo="Configurar"
+            icone="settings"
+            tamanho="pequeno"
+            aparencia="contorno"
+            dica="Modelo de IA: onde roda (este computador ou GPU externa) e qual modelo usar"
+            onClick={() => navigate('/modelo-ia')}
+          />
+        }
+      >
         {status.error ? (
           <Alerta severidade="err" titulo="Backend indisponível" mensagem={status.error.message} />
         ) : (
@@ -132,10 +148,7 @@ export function StatusPage() {
               <OnlineStatus online={!!s?.backend.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
-              <span>
-                Ollama{' '}
-                {s && (s.ollama.location === 'externo' ? '(GPU externa, pelo túnel SSH)' : '(neste computador)')}
-              </span>
+              <span>Ollama em uso{currentServer && ` (${currentServer.label.toLowerCase()})`}</span>
               <OnlineStatus online={!!s?.ollama.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>

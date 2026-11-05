@@ -306,3 +306,51 @@
 .app-grafico-chat {
   min-width: min(100%, 30rem);
 }
+
+/* Card "Modelo de IA" da página de Status */
+.app-modelo {
+  display: grid;
+  gap: 1rem;
+}
+
+/* sem isso, a chave e a impressão digital (palavras longas) alargam o card no celular */
+.app-modelo > * {
+  min-width: 0;
+}
+
+.app-modelo-passo {
+  margin: 0.375rem 0 0;
+  color: var(--t3);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
+/* Card "GPU externa": chave pública, campos curtos e ações */
+.app-chave {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: var(--hairline) solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.app-chave code {
+  flex: 1;
+  min-width: 0;
+  color: var(--t2);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
+.app-filtros > .app-campo-curto {
+  flex: 0 1 8rem;
+}
+
+.app-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}

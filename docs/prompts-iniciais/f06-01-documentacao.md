@@ -96,7 +96,7 @@ conforme a internet, porque baixa o modelo de IA. Para acompanhar o download, em
 `docker compose logs -f ollama-init`. Das próximas vezes, sobe em segundos.
 
 Com GPU NVIDIA, antes de rodar o script, copie `.env.example` para `.env` e descomente a linha `COMPOSE_FILE` do
-seu sistema. Com uma GPU de 12 GB, troque também `CHAT_MODEL=qwen3:14b` (veja
+seu sistema. Com uma GPU de 12 GB, baixe e escolha o `qwen3:14b` em **Modelo de IA** (em **Status e coletas**, botão **Configurar**) (veja
 [Hardware e escolha do modelo](#hardware-e-escolha-do-modelo)).
 
 ### 3. Usar no navegador
@@ -135,7 +135,7 @@ O projeto treina de verdade, com os dados que ele mesmo coleta, e mede se o trei
 | **Como é treinado** | Regressão por mínimos quadrados; o sistema testa a tendência sozinha e as combinações de até 2 variáveis de chuva | LoRA em 4 bits (Unsloth) sobre o Qwen3, exportado em GGUF para o Ollama |
 | **Como é medido** | Cada safra é prevista por um modelo treinado sem ela; o erro é comparado ao da tendência sozinha | Acerto em perguntas com redações que não estão no treino, antes e depois |
 | **Quando treina** | Sozinho depois de cada coleta (todos os municípios), e pelo botão **Treinar de novo** (só o município e a cultura da tela) | Quando você roda o treino (etapa opcional, precisa de GPU NVIDIA) |
-| **Onde aparece** | Página **Previsão (treino)** e a ferramenta `previsao_safra` do chat | `CHAT_MODEL=celke-agro` no `.env` |
+| **Onde aparece** | Página **Previsão (treino)** e a ferramenta `previsao_safra` do chat | Modelo `celke-agro`, escolhido em **Modelo de IA** (em **Status e coletas**, botão **Configurar**) |
 
 Exemplo real com Rio Verde (GO): o modelo do milho escolheu o maior veranico e a chuva de janeiro e errou, em média,
 486 kg/ha (9%) safra a safra, contra 688 kg/ha (13,5%) da tendência sozinha: a chuva reduziu o erro em 29%. Na
@@ -180,8 +180,8 @@ docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
 ```
 
-Para usar o modelo treinado no chat, coloque `CHAT_MODEL=celke-agro` no `.env` e rode o script de inicialização de
-novo. Os relatórios da avaliação ficam em `finetuning/data/avaliacao-<modelo>.json`, com o acerto por tipo de pergunta
+Para usar o modelo treinado no chat, escolha `celke-agro` em **Modelo de IA** (em **Status e coletas**, botão **Configurar**) e clique em **Usar
+este modelo** (não precisa reiniciar). Os relatórios da avaliação ficam em `finetuning/data/avaliacao-<modelo>.json`, com o acerto por tipo de pergunta
 e os erros; as métricas do treino (perda inicial e final, tempo) em `finetuning/output/treino.json`.
 
 Medição real do "antes", com Rio Verde (GO) cadastrado: o `qwen3:8b` sem treino escolheu a ferramenta certa em
@@ -206,32 +206,45 @@ NVIDIA, SSH e o Ollama serve. Há dois usos, independentes:
 
 | Uso | O que roda no servidor | O que continua no seu computador |
 |---|---|---|
-| **Modelo do chat** | Ollama com o `CHAT_MODEL` (ex.: `qwen3:14b`, que não roda bem na CPU) | Frontend, backend, banco, coletas e o treino da previsão |
+| **Modelo do chat** | Ollama com um modelo maior (ex.: `qwen3:14b` ou `qwen3:32b`, que não rodam bem na CPU) | Frontend, backend, banco, coletas, o treino da previsão e o Ollama local, para alternar |
 | **Fine-tuning** | O treino LoRA (de 20 a 60 minutos) | Tudo; o modelo treinado volta para `finetuning/output/` |
 
-**Segurança:** o backend fala com o Ollama do servidor por um **túnel SSH** aberto pelo próprio Compose (serviço
-`gpu-tunnel`, dentro da rede do Docker). A porta do Ollama não precisa ficar aberta na internet; se o painel do
-provedor oferecer firewall, deixe aberta só a porta SSH. Use chave SSH, não senha.
+Tudo se configura na página **Modelo de IA** (em **Status e coletas**, botão **Configurar** no card **Serviços**),
+sem `.env` e sem reiniciar: o card **GPU externa** cadastra o servidor e abre o túnel, e o card **Modelo de IA**
+escolhe onde o modelo roda e qual usar.
 
-**Custo:** a cobrança corre enquanto a instância existe. Desligue (ou apague) no painel quando terminar; apagar perde
-os arquivos que não estiverem no armazenamento persistente.
+**Segurança:** o backend fala com o Ollama do servidor por um **túnel SSH** que ele mesmo abre (a porta do túnel,
+`GPU_TUNNEL_PORT`, só existe dentro da rede do Docker). A porta do Ollama não precisa ficar aberta na internet; se o
+painel do provedor oferecer firewall, deixe aberta só a porta SSH. O backend gera a própria chave SSH (ed25519): a
+privada fica só no volume `backend-ssh` e nunca sai pela API; a página mostra a pública. A chave do servidor é aceita
+na primeira conexão e conferida nas seguintes: se mudar, o túnel não abre até você aceitar a nova no painel.
+
+**Custo:** a cobrança corre enquanto a instância existe. Desligue (ou apague) no painel do provedor quando terminar;
+apagar perde os arquivos que não estiverem no armazenamento persistente. **Desconectar** na página Modelo de IA só fecha
+o túnel: não desliga a instância.
 
 ### Modelo do chat na GPU externa
 
-1. No painel, crie a instância com o app Ollama e cadastre a sua chave SSH pública (`~/.ssh/id_ed25519.pub`; sem
-   chave, crie com `ssh-keygen -t ed25519`).
-2. Baixe o modelo no servidor: `ssh root@<ip> ollama pull qwen3:14b`.
-3. No `.env`:
-   ```dotenv
-   COMPOSE_FILE=compose.yaml;compose.externo.yaml   # no Linux e no macOS, separe com ":"
-   GPU_SSH=root@<ip>
-   GPU_SSH_KEY=~/.ssh/id_ed25519
-   CHAT_MODEL=qwen3:14b
-   ```
-4. Rode o script de inicialização. O Ollama local não sobe; a página **Status e coletas** mostra "Ollama (GPU
-   externa, pelo túnel SSH)". Se aparecer desconectado: `docker compose logs gpu-tunnel`.
+1. Em **Modelo de IA > GPU externa** (em **Status e coletas**, botão **Configurar**), copie a **chave pública** (botão **Copiar**).
+2. No painel do provedor, crie a instância com o app Ollama. Se ele tiver um cadastro de chaves SSH, cole a chave
+   pública lá antes de criar.
+3. De volta ao card, preencha o **endereço** (o IP que o painel mostra), a **porta SSH** (22) e o **usuário** (`root`)
+   e clique em **Cadastrar e conectar**.
+4. Se o card disser que o servidor recusou a chave (você não cadastrou no passo 2), digite a **senha** do servidor e
+   clique em **Instalar a chave**: o backend entra uma vez com a senha, acrescenta a chave ao `~/.ssh/authorized_keys`
+   e conecta. A senha não fica guardada.
+5. Com o card em **Conectada**, vá em **Modelo de IA**, escolha **GPU externa**, digite o modelo em **Baixar modelo no
+   servidor da GPU** (ex.: `qwen3:14b`) e clique em **Baixar**: o download roda no servidor e o andamento aparece na
+   tela. Depois, escolha o modelo na lista e clique em **Usar este modelo**.
 
-Para voltar ao modelo local, tire as linhas do `.env` e rode o script de novo.
+A troca vale na hora para o chat, as descobertas, os alertas e a explicação da previsão, e fica guardada no banco
+(reiniciar não desfaz; o túnel reabre sozinho). Cada Ollama lembra o seu modelo: dá para usar o `qwen3:32b` na GPU
+externa enquanto a instância estiver ligada e voltar para o `qwen3:8b` deste computador quando desligar. Se a conexão
+cair, o backend tenta de novo sozinho (de 5 s a 1 min entre as tentativas). **Desconectar** e **Remover servidor**
+voltam o modelo em uso para este computador.
+
+Instância nova com o mesmo IP: o servidor ganha outra chave, e o card avisa. Clique em **Aceitar a chave nova do
+servidor** só se você mesmo recriou a instância.
 
 ### Fine-tuning na GPU externa
 
@@ -239,14 +252,19 @@ Com o dataset gerado (`docker compose --profile finetune run --rm finetune-tools
 (Linux, macOS ou **Git Bash** no Windows):
 
 ```bash
-./finetuning/treinar_remoto.sh root@<ip>
+./finetuning/treinar_remoto.sh                 # o servidor e a chave cadastrados em Modelo de IA > GPU externa
+./finetuning/treinar_remoto.sh root@<ip> 22    # ou outro servidor, com a sua chave (GPU_SSH_KEY, padrão ~/.ssh/id_ed25519)
 ```
 
-O script confere a GPU do servidor, envia o dataset e o `treinar.py`, instala as dependências fixas num ambiente
+Sem argumentos, o script usa o servidor do card **GPU externa** e a chave que ele já aceita (copiada do volume do
+backend para um arquivo temporário, apagado no fim). O script confere a GPU do servidor, envia o dataset e o `treinar.py`, instala as dependências fixas num ambiente
 Python isolado (a primeira vez baixa cerca de 10 GB), treina e traz `celke-agro.gguf` e `treino.json` para
 `finetuning/output/`. Depois, crie o modelo e meça o "depois" como no passo 4 e 5 de
 [Fine-tuning](#fine-tuning-do-modelo-de-linguagem-gpu). Com o chat também na GPU externa, rode com
-`CRIAR_NO_SERVIDOR=1` para criar o `celke-agro` direto no Ollama do servidor e use `CHAT_MODEL=celke-agro`.
+`CRIAR_NO_SERVIDOR=1` para criar o `celke-agro` direto no Ollama do servidor e escolha `celke-agro` na GPU externa
+em **Modelo de IA**. Para medir um modelo do servidor, com o túnel conectado, aponte a avaliação para a porta do
+túnel: `docker compose --profile finetune run --rm -e OLLAMA_URL=http://backend:11435 finetune-tools avaliar --modelo
+celke-agro`.
 
 Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o `unsloth/Qwen3-14B`
 (`FINETUNE_BASE_MODEL`), usando `qwen3:14b` como base no `criar_modelo.sh`.
@@ -293,12 +311,11 @@ Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI 
 | Serviço | Função | Porta no seu computador |
 |---|---|---|
 | `frontend` | nginx com o React; repassa `/api` ao backend (mesma origem, streaming sem buffer) | `127.0.0.1:8091` |
-| `backend` | API, coletas, agendador, análises, treino da previsão, descobertas, alertas e chat com ferramentas | nenhuma |
+| `backend` | API, coletas, agendador, análises, treino da previsão, descobertas, alertas, chat com ferramentas e o túnel SSH da GPU externa | nenhuma |
 | `ollama` | Modelo de linguagem | nenhuma |
 | `ollama-init` | Baixa o modelo se faltar e termina | nenhuma |
 | `postgres` | Todos os dados | nenhuma |
 | `finetune-tools`, `finetune-train` | Dataset, avaliação e treino do fine-tuning (profile `finetune`, só quando você roda) | nenhuma |
-| `gpu-tunnel` | Túnel SSH até a GPU externa (só com `compose.externo.yaml`, no lugar do `ollama`) | nenhuma |
 
 O backend é dividido em `api/` (rotas finas) → `services/` (regras) → `repositories/` (SQL). O ciclo do chat:
 
@@ -349,10 +366,10 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 |---|---|---|
 | `APP_PORT` | `8091` | Porta do navegador |
 | `APP_BIND` | `127.0.0.1` | `0.0.0.0` abre na rede local (veja [Segurança](#segurança-e-privacidade)) |
-| `COMPOSE_FILE` | — | GPU NVIDIA local (`compose.yaml;compose.gpu.yaml`) ou GPU externa (`compose.yaml;compose.externo.yaml`); no Linux e no macOS, separe com `:` |
+| `COMPOSE_FILE` | — | GPU NVIDIA local (`compose.yaml;compose.gpu.yaml`; no Linux e no macOS, separe com `:`). A GPU externa não usa o `.env`: veja [GPU externa](#gpu-externa-hostinger-e-similares) |
 | `POSTGRES_PASSWORD` | — | Senha do banco (obrigatória; gerada pelos scripts) |
 | `POSTGRES_DB` / `POSTGRES_USER` | `celke_agro` / `celke` | Banco e usuário |
-| `CHAT_MODEL` | `qwen3:8b` | Modelo do Ollama; precisa aceitar ferramentas |
+| `CHAT_MODEL` | `qwen3:8b` | Modelo inicial do Ollama (baixado pelo `ollama-init`); precisa aceitar ferramentas. Depois, o modelo em uso se troca na página **Modelo de IA** |
 | `CHAT_NUM_CTX` | `8192` | Janela de contexto do modelo |
 | `CHAT_TEMPERATURE` | `0.2` | Criatividade das respostas |
 | `CHAT_THINK` | `false` | Raciocínio do modelo (`false`, `true` ou `auto`) |
@@ -372,9 +389,9 @@ não existir. Depois de mudar o `.env`, rode o script de novo.
 | `DISCOVERY_MIN_YEARS` | `8` | Safras mínimas para testar uma relação |
 | `ALERT_RAIN_DEFICIT_PCT` | `25` | Chuva da safra abaixo da média que gera alerta (%) |
 | `ALERT_DRY_SPELL_DAYS` | `10` | Dias seguidos sem chuva que geram alerta |
-| `GPU_SSH` | — | Usuário e IP do servidor de GPU externa (`root@203.0.113.10`), com `compose.externo.yaml` |
-| `GPU_SSH_PORT` | `22` | Porta SSH do servidor |
-| `GPU_SSH_KEY` | `~/.ssh/id_ed25519` | Chave privada que o servidor aceita |
+| `GPU_TUNNEL_PORT` | `11435` | Porta do túnel da GPU externa dentro da rede do Docker (`http://backend:11435`); não é publicada |
+| `SSH_KEY_DIR` | `/data/ssh` | Pasta da chave SSH do backend, no volume `backend-ssh` |
+| `GPU_SSH_KEY` / `GPU_SSH_PORT` | `~/.ssh/id_ed25519` / `22` | Só no `treinar_remoto.sh` com o servidor no argumento (sem argumento, ele usa o do painel) |
 | `FINETUNE_BASE_MODEL` | `unsloth/Qwen3-8B` | Modelo base do fine-tuning (Hugging Face) |
 | `FINETUNE_EPOCHS` | `2` | Passadas pelo dataset no fine-tuning |
 | `FINETUNE_MAX_SEQ_LENGTH` | `4096` | Tamanho máximo de cada exemplo de treino, em tokens |
@@ -419,9 +436,19 @@ A documentação interativa da API fica em http://localhost:8091/api/docs.
 | Pouca memória | `qwen3:4b` | Mais rápido, erra mais a escolha das ferramentas |
 
 O modelo precisa aceitar ferramentas (tool calling): no site do Ollama, a etiqueta **tools**. A página **Status e
-coletas** avisa se o modelo configurado não aceitar.
+coletas** recusa escolher um modelo que não aceite.
 
-Para trocar: mude `CHAT_MODEL` no `.env` e rode o script de inicialização de novo (o `ollama-init` baixa o modelo).
+Para trocar, em **Modelo de IA** (em **Status e coletas**, botão **Configurar**): escolha onde o modelo roda (este computador ou a GPU externa),
+baixe o modelo em **Baixar modelo** se ele ainda não estiver na lista e clique em **Usar este modelo**. Não precisa
+mudar o `.env` nem reiniciar. Um modelo maior não pede outra mudança no projeto, mas confira:
+
+- **Memória:** o modelo precisa caber na RAM ou na GPU de onde roda (o tamanho aparece na lista). Na CPU, fique no
+  8B; o 14B pede GPU de 12 GB; o 32B, GPU de 24 GB ou mais (como a RTX 4090 da GPU externa).
+- **Tempo:** a primeira pergunta carrega o modelo na memória. Se der "demorou demais para responder" com um modelo
+  grande, aumente `OLLAMA_TIMEOUT_SECONDS`.
+- **Contexto:** `CHAT_NUM_CTX` vale para todos os modelos; mais contexto ocupa mais memória.
+- **Fine-tuning:** para treinar o LoRA sobre o modelo maior, mude também `FINETUNE_BASE_MODEL` (ex.:
+  `unsloth/Qwen3-14B`) e use o mesmo modelo como base no `criar_modelo.sh`.
 
 ## Problemas comuns
 
@@ -432,17 +459,24 @@ Para trocar: mude `CHAT_MODEL` no `.env` e rode o script de inicialização de n
 | Coleta com erro "limite de pedidos atingido" | O Open-Meteo gratuito tem limite diário. Espere e use **Buscar agora** depois |
 | Município parado em "Coletando" depois de reiniciar | A coleta foi interrompida e fica como erro; clique em **Coletar chuva agora** |
 | Chat lento ou "demorou demais para responder" | Primeira pergunta carrega o modelo. Na CPU, use `qwen3:8b` ou menor; com GPU, ligue o `compose.gpu.yaml` |
-| "O modelo não aceita ferramentas" | Troque `CHAT_MODEL` por um modelo com a etiqueta tools |
-| "GPU externa desconectada" no Status | Veja `docker compose logs gpu-tunnel`: IP, porta, chave ou a instância desligada no painel |
+| "O modelo não aceita ferramentas" | Escolha em **Modelo de IA** um modelo com a etiqueta tools |
+| "GPU externa" com erro na página Modelo de IA | A mensagem do card diz o motivo: instância desligada, IP ou porta errados, chave recusada (use **Instalar a chave**) ou chave do servidor mudada. Detalhes em `docker compose logs backend`. Enquanto isso, escolha **Neste computador** em **Modelo de IA** |
+| "Túnel aberto, mas o Ollama não respondeu" | No servidor, confira `systemctl status ollama` e se o SSH permite encaminhar portas (`AllowTcpForwarding yes` em `/etc/ssh/sshd_config`) |
 | Treino remoto para em "Conferindo a GPU" | O servidor não aceitou a chave SSH ou não tem driver NVIDIA; confira o tipo da instância |
 | Página não abre na porta 8091 | Outra aplicação usa a porta: mude `APP_PORT` no `.env` |
 
 ## Segurança e privacidade
 
 - Só a porta do frontend é publicada, em `127.0.0.1`. Ollama, PostgreSQL e backend não têm porta publicada.
-- Não há login. Se mudar `APP_BIND` para `0.0.0.0`, qualquer pessoa da rede local usa o sistema.
+- Não há login. Se mudar `APP_BIND` para `0.0.0.0`, qualquer pessoa da rede local usa o sistema, inclusive
+  **Modelo de IA** e **GPU externa**: troca o modelo em uso, baixa modelos e conecta o backend ao servidor cadastrado
+  (na GPU externa, isso ocupa a instância paga).
 - A senha do banco fica só no `.env` (fora do git).
-- O backend só acessa os endereços do Open-Meteo e do IBGE, por HTTPS, e só envia parâmetros de consulta.
+- O backend só acessa os endereços do Open-Meteo e do IBGE, por HTTPS, e só envia parâmetros de consulta; por SSH,
+  só o servidor da GPU externa que você cadastrar.
+- Com a GPU externa, as perguntas do chat e os resultados das ferramentas vão ao servidor alugado, sempre pelo
+  túnel SSH. A chave privada do backend fica só no volume `backend-ssh`; a senha do servidor, quando usada para
+  instalar a chave, não é guardada. Com **Neste computador** escolhido em **Modelo de IA**, nada disso sai do computador.
 - O modelo não escreve SQL nem executa comandos: escolhe uma das 10 ferramentas, e os argumentos são validados.
 - Os resultados das ferramentas são tratados como dado, não como instrução.
 
@@ -469,12 +503,11 @@ backend/
   app/finetune/       dataset e avaliação do fine-tuning (python -m app.finetune)
   tests/              unitários (com dublês) e integração
 frontend/
-  src/pages/          Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e coletas
+  src/pages/          Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e coletas, Modelo de IA
   src/components/     ChartView (especificação do backend → gráfico do Kole)
   src/services/       cliente da API e leitor do streaming
 finetuning/           treino LoRA na GPU (Dockerfile, treinar.py), treinar_remoto.sh (GPU externa) e
                       criar_modelo.sh para o Ollama
-compose.externo.yaml  modelo do chat na GPU externa, pelo túnel SSH
 docs/
   prompts/            as etapas do tutorial, em texto
   prompts-iniciais/   prompts que recriam o projeto do zero com o conteúdo exato dos arquivos (gerados)
@@ -508,7 +541,7 @@ comandos e as variáveis de ambiente.
 |---|---|---|
 | `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL (psycopg 3) |
 | `finetuning/` | Treino LoRA na GPU e criação do modelo no Ollama | Python 3.12, Unsloth (versões fixas), Docker com GPU NVIDIA |
-| `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios e Status | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
+| `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e Modelo de IA | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
 | raiz | Docker Compose, scripts de inicialização | Docker Compose |
 | `docs/prompts-iniciais/` | Prompts que recriam o projeto do zero, sozinhos, com o conteúdo exato dos arquivos (gerados) | Markdown |
 | `docs/prompts/` | As mesmas etapas descritas em texto, para o tutorial | Markdown |
@@ -551,12 +584,17 @@ comandos e as variáveis de ambiente.
 - Mudou uma variável? Atualize `config.py`, `compose.yaml`, `.env.example` e a tabela do README juntos.
 - Só a porta do frontend é publicada, em `127.0.0.1`. Ollama, PostgreSQL e backend não têm porta publicada no
   `compose.yaml` (a do backend existe só no `compose.dev.yaml`).
-- GPU externa: o modelo do chat pode rodar num servidor alugado (`compose.externo.yaml`), sempre pelo túnel SSH do
-  serviço `gpu-tunnel`; nunca publique a porta do Ollama do servidor. O fine-tuning remoto é o
-  `finetuning/treinar_remoto.sh`. A página de Status diz se o Ollama é local ou externo (`ollama.location`).
+- GPU externa: toda pelo painel, nada no `.env`. O backend abre o túnel SSH (`services/gpu_tunnel.py`, asyncssh) com
+  a chave que ele gera no volume `backend-ssh`: a chave privada nunca sai pela API, a senha do servidor (instalar a
+  chave) nunca é guardada, e a chave do servidor é conferida depois da primeira conexão. A porta do túnel
+  (`GPU_TUNNEL_PORT`) fica só na rede do Docker; nunca publique a porta do Ollama do servidor. Os dois Ollama ficam no
+  ar e a página Modelo de IA (`/modelo-ia`, botão Configurar no card Serviços do Status) escolhe qual usar e o modelo de cada um (`services/model_selector.py`, guardado em
+  `app_settings`). O fine-tuning remoto é o `finetuning/treinar_remoto.sh` (sem argumento, usa o servidor do painel).
+- O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py` e, por SSH, o servidor da GPU
+  externa cadastrado no painel.
 - Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
-- O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py`, por HTTPS, e só envia
-  parâmetros de consulta (nomes de municípios, coordenadas, datas, códigos do IBGE).
+- Nas fontes públicas, o backend usa HTTPS e só envia parâmetros de consulta (nomes de municípios, coordenadas,
+  datas, códigos do IBGE).
 
 ## Backend
 
@@ -677,7 +715,7 @@ def blocks(paths):
 
 
 ROOT = [".gitignore", ".gitattributes", ".dockerignore", ".env.example", "compose.yaml", "compose.gpu.yaml",
-        "compose.externo.yaml", "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
+        "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
         "finetuning/output/.gitkeep"]
 BACKEND = [f for f in FILES if f.startswith("backend/")]
 FRONTEND = [f for f in FILES if f.startswith("frontend/") and f != "frontend/package-lock.json"]
@@ -1092,8 +1130,10 @@ git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 ## Orientação ao terminar
 
 > **Pronto:** o fine-tuning está preparado. <Com GPU: "O modelo treinado `celke-agro` acertou <depois>% das perguntas
-> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
-> treinar, alugue uma GPU por hora (por exemplo, na Hostinger) e rode `./finetuning/treinar_remoto.sh root@<ip>`:
+> novas, contra <antes>% do modelo original. Para usar no chat, escolha `celke-agro` na página Modelo de IA
+> (Status e coletas > Configurar)."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
+> treinar, alugue uma GPU por hora (por exemplo, na Hostinger), cadastre na página Modelo de IA (GPU externa) e rode
+> `./finetuning/treinar_remoto.sh`:
 > veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
@@ -1195,7 +1235,8 @@ Mostre, trocando os marcadores:
 > **O Celke Treinar IA Agro está pronto em http://localhost:<porta>** com o modelo `<modelo>`.
 >
 > **Agora é com você, no navegador:**
-> 1. Em **Status e coletas**, confira se tudo está verde.
+> 1. Em **Status e coletas**, confira se tudo está verde. Em **Configurar** (card Serviços), dá para baixar e trocar o modelo, e
+>    escolher entre este computador e uma GPU externa, sem reiniciar.
 > 2. Em **Municípios**, cadastre outro município: a chuva e a produção são baixadas em cerca de 1 minuto.
 > 3. Em **Previsão (treino)**, veja o modelo treinado com as safras: as variáveis escolhidas, o erro medido e a
 >    previsão da próxima safra.
@@ -1499,7 +1540,7 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 | Serviço | Imagem / build | Detalhes |
 |---|---|---|
 | `frontend` | build `./frontend`, target `runtime` | Única porta publicada: `"${APP_BIND:-127.0.0.1}:${APP_PORT:-8091}:80"`; depende do backend saudável |
-| `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; depende de `postgres` e `ollama` saudáveis |
+| `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; volume `backend-ssh:/data/ssh`; depende de `postgres` e `ollama` saudáveis |
 | `ollama` | `ollama/ollama:0.40.13` | Volume `ollama-models:/root/.ollama`; `OLLAMA_KEEP_ALIVE`; healthcheck `ollama list` |
 | `ollama-init` | `ollama/ollama:0.40.13` | `OLLAMA_HOST=http://ollama:11434`; baixa `CHAT_MODEL` só se `ollama show` falhar; termina; `restart: "no"` |
 | `postgres` | `postgres:18.6-alpine` | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
@@ -1510,7 +1551,8 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 Variáveis do backend (com o padrão):
 
 ```
-OLLAMA_URL=http://ollama:11434          OLLAMA_TIMEOUT_SECONDS=300     CHAT_MODEL=qwen3:8b
+OLLAMA_URL=http://ollama:11434          GPU_TUNNEL_PORT=11435          OLLAMA_TIMEOUT_SECONDS=300
+CHAT_MODEL=qwen3:8b
 CHAT_NUM_CTX=8192                       CHAT_TEMPERATURE=0.2           CHAT_THINK=false
 HISTORY_MAX_MESSAGES=6                  MAX_TOOL_ROUNDS=5
 POSTGRES_HOST=postgres  POSTGRES_PORT=5432  POSTGRES_DB=celke_agro  POSTGRES_USER=celke  POSTGRES_PASSWORD=
@@ -1521,13 +1563,11 @@ DISCOVERY_MAX_Q=0.10                    DISCOVERY_MIN_ABS_R=0.4        DISCOVERY
 ALERT_RAIN_DEFICIT_PCT=25               ALERT_DRY_SPELL_DAYS=10
 ```
 
-`compose.externo.yaml` (GPU externa, por exemplo a GPU hosting da Hostinger): o serviço `gpu-tunnel` (`alpine:3.22`,
-instala o `openssh-client` e abre `ssh -N -L 0.0.0.0:11434:127.0.0.1:11434` até `GPU_SSH`, na porta `GPU_SSH_PORT`,
-com a chave `GPU_SSH_KEY` montada só para leitura e copiada com permissão 600; `StrictHostKeyChecking=accept-new` com
-o `known_hosts` num volume; healthcheck `nc -z 127.0.0.1 11434`); `ollama` e `ollama-init` só no profile
-`ollama-local`; backend e `finetune-tools` com `OLLAMA_URL=http://gpu-tunnel:11434` e `depends_on: !reset`. O túnel
-fica na rede do Docker: a porta do Ollama não abre na internet nem na rede local. Os scripts de inicialização só
-esperam o `ollama-init` se ele estiver em `docker compose config --services`.
+GPU externa (por exemplo, a GPU hosting da Hostinger): nenhum arquivo de compose a mais e nada no `.env`. O backend
+abre o túnel SSH ele mesmo (etapa 4) e guarda a chave SSH que gera no volume `backend-ssh`, montado em `/data/ssh` (o
+`Dockerfile` cria a pasta com dono `app` e permissão 700). A porta do túnel (`GPU_TUNNEL_PORT`) não é publicada: só
+a rede do Docker a alcança (`http://backend:11435`, usado pelo `finetune-tools` para avaliar um modelo do servidor).
+Os scripts de inicialização esperam o `ollama-init` terminar.
 
 `compose.gpu.yaml`: no `ollama`, `deploy.resources.reservations.devices` com `driver: nvidia`, `count: all`,
 `capabilities: [gpu]`. `compose.dev.yaml`: publica o backend em `127.0.0.1:8000` (só para o Vite em desenvolvimento).
@@ -1788,11 +1828,57 @@ para fazer contas, não escreve SQL e não executa comandos.
 
 ## Ollama (`services/ollama_service.py`)
 
-`chat_stream(messages, tools)` com streaming, devolvendo pedaços `content`, `thinking` e `tool_call`; `chat_json`
-com saída estruturada (`format` = esquema JSON) e sem raciocínio; `capabilities()` para saber se o modelo aceita
-ferramentas. Erros traduzidos: modelo ausente (com o comando `ollama pull`), modelo sem ferramentas, falta de memória,
-tempo esgotado, sem conexão. `CHAT_THINK=false` por padrão: num teste na CPU, a mesma chamada de ferramenta saiu igual
-e 6 vezes mais rápida.
+Um `OllamaService` por servidor: `local` (`OLLAMA_URL`) e `externo` (a GPU externa, em
+`http://127.0.0.1:<GPU_TUNNEL_PORT>`, a ponta do túnel dentro do próprio backend). O modelo vem em cada chamada: `chat_stream(model, messages, tools)` com streaming,
+devolvendo pedaços `content`, `thinking` e `tool_call`; `chat_json(model, messages, schema)` com saída estruturada
+(`format` = esquema JSON) e sem raciocínio; `capabilities(model)` (guardado por modelo) para saber se aceita
+ferramentas; `installed_models()` com nome, tamanho e número de parâmetros; `pull(model)` com o andamento do download
+por camada, sem tempo limite de leitura. Erros traduzidos: modelo ausente (com o botão de download e o comando
+`ollama pull` do lugar certo), modelo sem ferramentas, falta de memória, tempo esgotado, sem conexão (na GPU externa, com o
+túnel aberto: Ollama parado no servidor ou SSH sem `AllowTcpForwarding`), modelo que não existe na biblioteca. `CHAT_THINK=false` por padrão:
+num teste na CPU, a mesma chamada de ferramenta saiu igual e 6 vezes mais rápida.
+
+## Escolha do modelo (`services/model_selector.py`)
+
+`ModelSelector` é o modelo de linguagem que o chat, as descobertas, os alertas e a explicação da previsão recebem
+(tem `name`, `chat_stream` e `chat_json`). Cada chamada vai ao Ollama e ao modelo escolhidos no momento, então a
+troca vale sem reiniciar. A escolha fica na tabela `app_settings` (chave e valor): `ollama_location` e o modelo de
+cada Ollama (`chat_model.local`, `chat_model.externo`), lida uma vez e guardada na memória; sem escolha no banco,
+`CHAT_MODEL` no Ollama local. Escolhida a GPU externa e depois removido o servidor, volta para o local; com o túnel
+fechado, as chamadas ao externo recebem a mensagem do túnel. `use_local()` volta para o local (chamado ao desconectar
+e ao remover a GPU externa pelo painel). `select(location, model)` recusa com 422 um Ollama não configurado, um modelo não instalado ou sem
+ferramentas, e com 503 um Ollama fora do ar. `pull(location, model)` baixa em segundo plano (um download por Ollama;
+409 se já houver um), com o andamento em porcentagem na memória. `status()` devolve o Ollama e o modelo em uso e, para
+cada Ollama, se está configurado e no ar, os modelos instalados, o modelo escolhido e o download.
+
+## GPU externa (`services/gpu_tunnel.py`)
+
+`GpuTunnel` abre e mantém o túnel SSH com `asyncssh`, num laço de eventos próprio numa thread (as rotas são
+síncronas). Tudo vem do painel e fica em `app_settings` (`gpu.host`, `gpu.port`, `gpu.user`, `gpu.enabled`,
+`gpu.host_key`); nada no `.env`.
+
+- Chave: ed25519 gerada na primeira vez em `SSH_KEY_DIR/id_ed25519` (permissão 600, comentário
+  `celke-treinar-ia-agro`). A API só devolve a pública.
+- Conexão: `forward_local_port` de `0.0.0.0:<GPU_TUNNEL_PORT>` até `127.0.0.1:11434` do servidor, sem agente SSH,
+  com keepalive de 30 s. Um supervisor reabre a conexão se ela cair (espera de 5 s, dobrando até 60 s) e para de
+  tentar quando a chave é recusada ou a chave do servidor mudou.
+- Chave do servidor: na primeira conexão (sem `known_hosts`), guarda a chave do servidor; nas seguintes, só conecta
+  com ela (`import_known_hosts`, com `[host]:porta` fora da 22). Se mudar, estado `erro`, `host_key_mismatch` e a
+  mensagem pedindo para aceitar só se a instância foi recriada.
+- `install_key(password)`: entra uma vez com a senha e acrescenta a chave pública ao `~/.ssh/authorized_keys` com
+  `umask 077` e `grep -qxF` (sem duplicar); a senha não é guardada nem registrada. Senha errada vira 422.
+- `save(host, port, user)` valida endereço (nome ou IP), porta e usuário, esquece a chave do servidor se o endereço
+  mudou e conecta; também `connect`, `disconnect`, `remove` e `forget_host_key`. Estados: `nao_configurado`,
+  `desconectado`, `conectando`, `conectado`, `erro`, sempre com uma mensagem que diz o que fazer.
+- `start()` na inicialização reabre o túnel se ele estava ligado; `stop()` no encerramento.
+
+Rotas: `GET /api/gpu`, `POST /api/gpu` (cadastra e conecta), `POST /api/gpu/connect`, `POST /api/gpu/disconnect`,
+`POST /api/gpu/install-key`, `POST /api/gpu/accept-host-key` e `DELETE /api/gpu`; desconectar e remover chamam
+`use_local()` antes. `GET /api/status` traz o mesmo em `gpu`.
+
+Rotas do modelo: `GET /api/ollama`, `POST /api/ollama/selection` e `POST /api/ollama/pull` (202), com `location` (`local` ou
+`externo`) e `model` (só letras, números e `._-/:`, até 200 caracteres). `GET /api/status` traz o mesmo em `ollama`.
+Os registros de descobertas e de treinos da previsão guardam o `name` do modelo em uso.
 
 ## Glossário (`core/domain.py`)
 
@@ -1867,7 +1953,12 @@ alertas, treino da previsão e descobertas, numa fila única (uma geração por 
 ## Testes
 
 Modelo falso roteirizado (rodadas de pedaços, incluindo `tool_call`) e com respostas JSON para descobertas, alertas e
-treino. Cubra: ferramenta chamada e resultado devolvido ao modelo, prompt com data e municípios, gráfico no stream,
+treino; servidores Ollama falsos (modelos, capacidades, download e erro de conexão) para o `ModelSelector`. Cubra:
+GPU externa padrão quando configurada, sem GPU externa, troca guardada no banco e lembrada depois de reiniciar, volta
+para o local, modelo ausente, sem ferramentas ou com nome inválido, Ollama fora do ar, download concluído, com erro e
+em conflito; o túnel contra um servidor SSH de verdade do `asyncssh` no próprio teste (chave recusada, senha errada e
+certa, porta encaminhada até um servidor de eco, desconectar, reconectar ao reiniciar, chave do servidor trocada e
+aceita) e desconectar ou remover voltando para o local; ferramenta chamada e resultado devolvido ao modelo, prompt com data e municípios, gráfico no stream,
 erro de ferramenta, última rodada sem ferramentas, raciocínio não mostrado, resposta vazia, erro e tentar de novo,
 histórico do banco; todas as ferramentas, inclusive argumentos inválidos e `chuva_do_mes` fora da janela;
 descobertas com e sem o modelo; alertas que aparecem e somem.
@@ -1934,7 +2025,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
   lightbulb, plus, sparkles, sprout, trash-2, wrench).
 - `layouts/AppLayout.tsx`: `Estrutura` com marca curta ("Celke Agro", subtítulo "Treinar IA") e o menu: Análises;
   **Inteligência**: Previsão (treino), Chat, Descobertas, Alertas; **Dados**: Municípios, Status e coletas. Rodapé com
-  as fontes (Open-Meteo CC BY 4.0 e IBGE).
+  as fontes (Open-Meteo CC BY 4.0 e IBGE) e onde roda a IA (este computador ou uma GPU externa).
 - `services/api.ts`: toda chamada à API, com `ApiError` e a mensagem do backend; `streamChat` com `fetch` e
   `AbortSignal`. `services/sse.ts`: leitura do streaming em blocos, com os eventos `conversation`, `thinking`,
   `tool_call`, `tool_result`, `chart`, `token`, `done` e `error`.
@@ -1952,7 +2043,8 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 | **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |
 | **Municípios** (`/municipios`) | Cadastro com `CampoUf` e `CampoCidade` (lista do IBGE pelo backend); tabela com situação e a mensagem do passo atual, período da chuva, último ano da produção, ações (ver análises, excluir); botão **Coletar chuva agora**; atualização a cada 3 s |
-| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; serviços (backend, Ollama, modelo com ferramentas, PostgreSQL, agendador) |
+| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; card **Serviços** com o botão **Configurar** fixo à direita do título (`ferramentas` do `Card`, não `acoes`, que só aparecem no hover) (abre `/modelo-ia`) e a lista (backend, Ollama em uso, modelo com ferramentas, PostgreSQL, agendador) |
+| **Modelo de IA** (`/modelo-ia`, fora do menu; aberta pelo **Configurar** do Status) | Cabeçalho com o botão de volta para o Status. Card **Modelo de IA** (`components/ModelCard.tsx`): em uso no subtítulo; `Escolha` "Onde o modelo roda" (Neste computador ou GPU externa, desabilitada sem configuração, com a dica do README); `CampoSelect` com os modelos instalados naquele Ollama (nome, parâmetros e GB) e a dica de memória por tamanho; **Usar este modelo**; `CampoTexto` e **Baixar** com `Progresso` do download (status a cada 2 s enquanto baixa ou conecta) e `Alerta` de concluído ou erro. Card **GPU externa** (`components/GpuCard.tsx`): `Status` do túnel; endereço, `CampoInteiro` da porta SSH e usuário com **Cadastrar e conectar**; `Alerta` com a mensagem do túnel; **Aceitar a chave nova do servidor** quando ela mudou; a chave pública em `<code>` com **Copiar** e a impressão digital da chave do servidor; `CampoSenha` e **Instalar a chave** enquanto não conecta; **Conectar** ou **Desconectar** e **Remover servidor** (com `useConfirmacao`, lembrando de desligar a instância no provedor). |
 
 Estilos próprios só em `src/styles.css`, com as variáveis do tema do Kole (`--surface`, `--t2`, `--t3`, `--border`,
 `--pri`…); nada de cor fixa. O chat ocupa exatamente a área de conteúdo e só a conversa rola.
@@ -2027,7 +2119,9 @@ Linha de comando no container do backend: `python -m app.finetune exportar --sai
   troca o `FROM` pelo GGUF treinado e cria `celke-agro`, mantendo o template de ferramentas do Qwen3.
 
 - `treinar_remoto.sh` (GPU externa, rodado no Linux, no macOS ou no Git Bash): `./finetuning/treinar_remoto.sh
-  usuario@ip [porta]`, com `GPU_SSH_KEY` e as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
+  [usuario@ip [porta]]`: sem argumento, pega o servidor de `GET /api/gpu` (com `docker compose exec backend`) e copia
+  a chave do volume do backend para um `mktemp` apagado no fim (`trap`); com argumento, usa `GPU_SSH_KEY`
+  (padrão `~/.ssh/id_ed25519`). Lê as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
   `treinar.py`, `requirements.txt` e `treino.jsonl` para `~/celke-finetune`, instala os pacotes do sistema que faltarem
   (com `sudo` se não for root), cria um ambiente Python isolado, instala as dependências fixas, treina e traz
   `celke-agro.gguf` e `treino.json` para `finetuning/output/`. Com `CRIAR_NO_SERVIDOR=1`, cria o `celke-agro` também
@@ -2066,10 +2160,10 @@ docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro   # o "depois"
 ```
 
-Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB):
+Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB), cadastrada na página Modelo de IA (card GPU externa):
 
 ```bash
-./finetuning/treinar_remoto.sh root@<ip>
+./finetuning/treinar_remoto.sh
 docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
 ```
@@ -2135,10 +2229,11 @@ Na ordem:
    quando treina, onde aparece), um exemplo real com números, o que **não** é treinado (números ficam no banco e nas
    ferramentas) e os três papéis da IA (responder, descobrir, avisar).
 4. **Fine-tuning do modelo de linguagem (GPU)**: os 5 comandos (exportar, avaliar antes, treinar, criar o modelo,
-   avaliar depois), como usar `CHAT_MODEL=celke-agro` e o que esperar.
+   avaliar depois), como escolher o `celke-agro` na página **Modelo de IA** (botão **Configurar** no Status) e o que esperar.
 5. Funcionalidades, arquitetura (diagrama e tabela de serviços), fontes de dados (com licença e limite do
    Open-Meteo), método (janelas, veranico, desvio da tendência, chuva da UF, filtro das descobertas, limites),
-   configuração (tabela de todas as variáveis), testes, comandos úteis, hardware e escolha do modelo, problemas
+   configuração (tabela de todas as variáveis), testes, comandos úteis, hardware e escolha do modelo (troca pelo
+   página Modelo de IA e o que conferir num modelo maior: memória, tempo, contexto e base do fine-tuning), problemas
    comuns, segurança e privacidade, evolução do projeto (talhão, previsão por talhão), estrutura e os prompts.
 
 ## `CLAUDE.md`
@@ -2328,7 +2423,8 @@ Mostre, trocando os marcadores:
 > **O Celke Treinar IA Agro está pronto em http://localhost:<porta>** com o modelo `<modelo>`.
 >
 > **Agora é com você, no navegador:**
-> 1. Em **Status e coletas**, confira se tudo está verde.
+> 1. Em **Status e coletas**, confira se tudo está verde. Em **Configurar** (card Serviços), dá para baixar e trocar o modelo, e
+>    escolher entre este computador e uma GPU externa, sem reiniciar.
 > 2. Em **Municípios**, cadastre outro município: a chuva e a produção são baixadas em cerca de 1 minuto.
 > 3. Em **Previsão (treino)**, veja o modelo treinado com as safras: as variáveis escolhidas, o erro medido e a
 >    previsão da próxima safra.

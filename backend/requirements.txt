@@ -4,6 +4,8 @@ pydantic==2.14.2
 pydantic-settings==2.16.2
 ollama==0.6.3
 httpx==0.28.1
+# túnel SSH até a GPU externa, aberto pelo backend
+asyncssh==2.24.1
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
 # fusos horários do agendador (America/Sao_Paulo), também no Windows e em imagens sem tzdata

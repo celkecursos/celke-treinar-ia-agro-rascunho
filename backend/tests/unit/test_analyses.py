@@ -39,11 +39,5 @@ def test_status(client):
     assert data["backend"]["online"] is True
     assert data["database"]["online"] is True
     assert data["ollama"]["chat_model"]["tools"] is True
-    assert data["ollama"]["location"] == "local"
     assert data["scheduler"]["enabled"] is False
     assert client.get("/api/health").json() == {"status": "ok"}
-
-
-def test_status_with_external_gpu(client, settings):
-    settings.ollama_url = "http://gpu-tunnel:11434"
-    assert client.get("/api/status").json()["ollama"]["location"] == "externo"

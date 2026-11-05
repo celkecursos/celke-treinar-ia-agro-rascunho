@@ -63,7 +63,7 @@ def blocks(paths):
 
 
 ROOT = [".gitignore", ".gitattributes", ".dockerignore", ".env.example", "compose.yaml", "compose.gpu.yaml",
-        "compose.externo.yaml", "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
+        "compose.dev.yaml", "scripts/iniciar.sh", "scripts/iniciar.ps1", "finetuning/data/.gitkeep",
         "finetuning/output/.gitkeep"]
 BACKEND = [f for f in FILES if f.startswith("backend/")]
 FRONTEND = [f for f in FILES if f.startswith("frontend/") and f != "frontend/package-lock.json"]
@@ -478,8 +478,10 @@ git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 ## Orientação ao terminar
 
 > **Pronto:** o fine-tuning está preparado. <Com GPU: "O modelo treinado `celke-agro` acertou <depois>% das perguntas
-> novas, contra <antes>% do modelo original."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
-> treinar, alugue uma GPU por hora (por exemplo, na Hostinger) e rode `./finetuning/treinar_remoto.sh root@<ip>`:
+> novas, contra <antes>% do modelo original. Para usar no chat, escolha `celke-agro` na página Modelo de IA
+> (Status e coletas > Configurar)."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
+> treinar, alugue uma GPU por hora (por exemplo, na Hostinger), cadastre na página Modelo de IA (GPU externa) e rode
+> `./finetuning/treinar_remoto.sh`:
 > veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
@@ -581,7 +583,8 @@ Mostre, trocando os marcadores:
 > **O Celke Treinar IA Agro está pronto em http://localhost:<porta>** com o modelo `<modelo>`.
 >
 > **Agora é com você, no navegador:**
-> 1. Em **Status e coletas**, confira se tudo está verde.
+> 1. Em **Status e coletas**, confira se tudo está verde. Em **Configurar** (card Serviços), dá para baixar e trocar o modelo, e
+>    escolher entre este computador e uma GPU externa, sem reiniciar.
 > 2. Em **Municípios**, cadastre outro município: a chuva e a produção são baixadas em cerca de 1 minuto.
 > 3. Em **Previsão (treino)**, veja o modelo treinado com as safras: as variáveis escolhidas, o erro medido e a
 >    previsão da próxima safra.
