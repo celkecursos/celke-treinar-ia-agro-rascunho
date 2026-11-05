@@ -79,7 +79,8 @@ seu sistema. Com uma GPU de 12 GB, baixe e escolha o `qwen3:14b` em **Modelo de 
 5. Em **Previsão (treino)**, veja o modelo que o sistema treinou com as safras do município: as variáveis que ele
    escolheu, o erro medido e a previsão da próxima safra.
 6. Em **Descobertas**, leia as relações que passaram no filtro estatístico, interpretadas pela IA. O relatório é
-   gerado depois de cada coleta e também pelo botão **Gerar de novo**.
+   gerado depois de cada coleta e também pelo botão **Gerar de novo**. A IA interpreta em lotes pequenos, e cada
+   descoberta aparece interpretada assim que o lote fica pronto (na CPU, um ou dois minutos por lote).
 7. Em **Alertas**, acompanhe a safra em andamento: chuva bem abaixo da média ou muitos dias sem chuva.
 
 A primeira resposta da IA demora mais, porque o modelo é carregado na memória. Na CPU, uma pergunta com

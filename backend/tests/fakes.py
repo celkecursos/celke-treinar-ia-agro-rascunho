@@ -148,12 +148,12 @@ class FakeModel:
         if "descobertas" in schema["properties"]:
             ids = re.findall(r'<descoberta id="(d\d+)"', messages[-1]["content"])
             return {
-                "resumo": "Resumo de teste.",
                 "descobertas": [
                     {"id": i, "interpretacao": f"Interpretação {i}", "hipotese": f"Hipótese {i}"} for i in ids
-                ],
-                "proximas_perguntas": ["Pergunta 1?", "Pergunta 2?"],
+                ]
             }
+        if "proximas_perguntas" in schema["properties"]:
+            return {"resumo": "Resumo de teste.", "proximas_perguntas": ["Pergunta 1?", "Pergunta 2?"]}
         return {"explicacao": "Explicação de teste."}  # alertas e treino da previsão
 
 

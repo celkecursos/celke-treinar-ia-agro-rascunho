@@ -89,6 +89,14 @@ class InsightRepository:
                     ),
                 )
 
+    def save_interpretations(self, report_id: str, interpretations: dict[str, tuple[str | None, str | None]]) -> None:
+        with self._db.connection() as conn:
+            for discovery_id, (interpretation, hypothesis) in interpretations.items():
+                conn.execute(
+                    "UPDATE discoveries SET interpretation = %s, hypothesis = %s WHERE id = %s AND report_id = %s",
+                    (interpretation, hypothesis, discovery_id, report_id),
+                )
+
     def finish_report(
         self,
         report_id: str,

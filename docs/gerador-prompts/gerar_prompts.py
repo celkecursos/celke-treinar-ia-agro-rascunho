@@ -591,7 +591,9 @@ Mostre, trocando os marcadores:
 >    previsão da próxima safra.
 > 4. Em **Chat**, pergunte, por exemplo, "A chuva de abril influencia o rendimento do milho em Rio Verde?". A primeira
 >    resposta demora mais, porque o modelo é carregado.
-> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento.
+> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento. Os
+>    números das descobertas aparecem na hora; a IA interpreta em lotes de até 4, e cada interpretação aparece quando
+>    o lote fica pronto (na CPU, um ou dois minutos por lote).
 >
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.

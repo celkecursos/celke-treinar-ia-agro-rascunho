@@ -133,9 +133,16 @@ Depois de cada coleta com dado novo (e pelo botão, com 409 se já estiver geran
    `|r| ≥ DISCOVERY_MIN_ABS_R`, ordenadas por |r| (até 8), cada uma com um fato escrito pelo código ("cada 5 dias a
    mais de veranico coincide com −8,9% no rendimento"), as estatísticas e o gráfico de dispersão.
 3. Fatos fixos: pior safra (com a chuva e o veranico dela), comparação com a UF nos últimos 10 anos e tendência.
-4. O modelo recebe os fatos dentro de `<descobertas>` e devolve, em JSON estruturado, resumo, interpretação e
-   hipótese de cada um (como hipótese, não fato) e de 3 a 5 próximas perguntas. Sem o modelo, o relatório fica com os
-   fatos e a mensagem de erro.
+4. O modelo interpreta em **lotes de até 4 descobertas do mesmo município e cultura** (`INTERPRET_BATCH`): recebe os
+   fatos do lote dentro de `<descobertas>` (ids curtos d1, d2…) e devolve, em JSON estruturado, interpretação e
+   hipótese de cada um (como hipótese, não fato). Cada lote é gravado assim que fica pronto, e a página mostra o
+   andamento. Numa chamada só, um relatório com 30 descobertas passa de 3.000 tokens de saída e, na CPU, nunca
+   termina dentro de `OLLAMA_TIMEOUT_SECONDS`; um lote termina em um ou dois minutos.
+5. Um lote com erro não leva os outros: o relatório segue e, no fim, diz quantas foram interpretadas ("A IA
+   interpretou 30 de 34 descobertas; as outras ficaram só com os números"). Dois lotes seguidos com erro antes de
+   qualquer acerto (o Ollama caiu, o modelo sumiu) encerram a geração.
+6. Por último, uma chamada curta com todos os fatos devolve o resumo e de 3 a 5 próximas perguntas. Sem o modelo,
+   o relatório fica com os fatos e a mensagem de erro.
 
 ## Alertas (`/api/alerts`)
 

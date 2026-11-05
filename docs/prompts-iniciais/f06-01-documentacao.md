@@ -110,7 +110,8 @@ seu sistema. Com uma GPU de 12 GB, baixe e escolha o `qwen3:14b` em **Modelo de 
 5. Em **Previsão (treino)**, veja o modelo que o sistema treinou com as safras do município: as variáveis que ele
    escolheu, o erro medido e a previsão da próxima safra.
 6. Em **Descobertas**, leia as relações que passaram no filtro estatístico, interpretadas pela IA. O relatório é
-   gerado depois de cada coleta e também pelo botão **Gerar de novo**.
+   gerado depois de cada coleta e também pelo botão **Gerar de novo**. A IA interpreta em lotes pequenos, e cada
+   descoberta aparece interpretada assim que o lote fica pronto (na CPU, um ou dois minutos por lote).
 7. Em **Alertas**, acompanhe a safra em andamento: chuva bem abaixo da média ou muitos dias sem chuva.
 
 A primeira resposta da IA demora mais, porque o modelo é carregado na memória. Na CPU, uma pergunta com
@@ -1255,7 +1256,9 @@ Mostre, trocando os marcadores:
 >    previsão da próxima safra.
 > 4. Em **Chat**, pergunte, por exemplo, "A chuva de abril influencia o rendimento do milho em Rio Verde?". A primeira
 >    resposta demora mais, porque o modelo é carregado.
-> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento.
+> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento. Os
+>    números das descobertas aparecem na hora; a IA interpreta em lotes de até 4, e cada interpretação aparece quando
+>    o lote fica pronto (na CPU, um ou dois minutos por lote).
 >
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.
@@ -1968,9 +1971,16 @@ Depois de cada coleta com dado novo (e pelo botão, com 409 se já estiver geran
    `|r| ≥ DISCOVERY_MIN_ABS_R`, ordenadas por |r| (até 8), cada uma com um fato escrito pelo código ("cada 5 dias a
    mais de veranico coincide com −8,9% no rendimento"), as estatísticas e o gráfico de dispersão.
 3. Fatos fixos: pior safra (com a chuva e o veranico dela), comparação com a UF nos últimos 10 anos e tendência.
-4. O modelo recebe os fatos dentro de `<descobertas>` e devolve, em JSON estruturado, resumo, interpretação e
-   hipótese de cada um (como hipótese, não fato) e de 3 a 5 próximas perguntas. Sem o modelo, o relatório fica com os
-   fatos e a mensagem de erro.
+4. O modelo interpreta em **lotes de até 4 descobertas do mesmo município e cultura** (`INTERPRET_BATCH`): recebe os
+   fatos do lote dentro de `<descobertas>` (ids curtos d1, d2…) e devolve, em JSON estruturado, interpretação e
+   hipótese de cada um (como hipótese, não fato). Cada lote é gravado assim que fica pronto, e a página mostra o
+   andamento. Numa chamada só, um relatório com 30 descobertas passa de 3.000 tokens de saída e, na CPU, nunca
+   termina dentro de `OLLAMA_TIMEOUT_SECONDS`; um lote termina em um ou dois minutos.
+5. Um lote com erro não leva os outros: o relatório segue e, no fim, diz quantas foram interpretadas ("A IA
+   interpretou 30 de 34 descobertas; as outras ficaram só com os números"). Dois lotes seguidos com erro antes de
+   qualquer acerto (o Ollama caiu, o modelo sumiu) encerram a geração.
+6. Por último, uma chamada curta com todos os fatos devolve o resumo e de 3 a 5 próximas perguntas. Sem o modelo,
+   o relatório fica com os fatos e a mensagem de erro.
 
 ## Alertas (`/api/alerts`)
 
@@ -2075,7 +2085,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 | **Análises** (`/`) | Município (`CampoSelect`) e cultura (`Escolha` soja/milho) na URL; alertas do município; indicadores com minigráfico; os gráficos em `Card` (o primeiro na largura toda); estimativa da LSPA em `Tabela`; notas de método em card recolhível. Sem município: `Vazio` com o botão de cadastrar |
 | **Previsão (treino)** (`/previsao`) | O que o modelo aprendeu: safras de treino, modelos testados, erro do modelo × erro da tendência, variáveis com os coeficientes (`Chip`), equação treinada, explicação da IA; gráfico real × previsto; um card por safra prevista (previsto com faixa e variação × tendência, tendência, estimativa do IBGE, chuva); gráfico dos cenários; histórico de treinos; botão **Treinar de novo** na mesma linha do município e da cultura, depois do grupo soja/milho, treinando só o que está escolhido nessa linha, atualizando sozinho enquanto treina |
 | **Chat** (`/chat`) | `Conversa`, `Mensagem` e `CampoMensagem`, como num chat comum; exemplos de pergunta no vazio (um deles compara os municípios cadastrados); a pergunta pode chegar por `?pergunta=`; enquanto gera, "Consultando: Chuva no período…"; gráficos dentro da resposta; ferramentas usadas como `Referencias` (nome amigável, fonte, resumo e argumentos); conversas salvas em `Dialogo` lateral, excluir com `useConfirmacao`, tentar de novo |
-| **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
+| **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; enquanto gera, quantas já foram interpretadas (elas aparecem conforme ficam prontas); aviso quando a IA não conseguiu interpretar ou interpretou só parte; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |
 | **Municípios** (`/municipios`) | Cadastro com `CampoUf` e `CampoCidade` (lista do IBGE pelo backend); tabela com situação e a mensagem do passo atual, período da chuva, último ano da produção, ações (ver análises, excluir); botão **Coletar chuva agora**; atualização a cada 3 s |
 | **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; card **Serviços** com o botão **Configurar** fixo à direita do título (`ferramentas` do `Card`, não `acoes`, que só aparecem no hover) (abre `/modelo-ia`) e a lista (backend, Ollama em uso, modelo com ferramentas, PostgreSQL com a versão do pgvector, agendador) |
@@ -2466,7 +2476,9 @@ Mostre, trocando os marcadores:
 >    previsão da próxima safra.
 > 4. Em **Chat**, pergunte, por exemplo, "A chuva de abril influencia o rendimento do milho em Rio Verde?". A primeira
 >    resposta demora mais, porque o modelo é carregado.
-> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento.
+> 5. Em **Descobertas** e **Alertas**, veja o que a IA encontrou e o que ela avisa sobre a safra em andamento. Os
+>    números das descobertas aparecem na hora; a IA interpreta em lotes de até 4, e cada interpretação aparece quando
+>    o lote fica pronto (na CPU, um ou dois minutos por lote).
 >
 > **Comandos úteis:** parar com `docker compose stop`; voltar com `docker compose start`; apagar tudo, inclusive dados e
 > modelos, com `docker compose down -v`.

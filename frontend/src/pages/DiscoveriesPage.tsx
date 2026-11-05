@@ -31,11 +31,14 @@ export function DiscoveriesPage() {
   const report = usePolling(loadReport, 5000);
   const r = report.data;
   const generating = r?.status === 'gerando';
+  // a IA interpreta em lotes e grava cada um: o andamento aparece enquanto gera
+  const interpreted = r?.discoveries.filter((d) => d.interpretation).length ?? 0;
+  const total = r?.discoveries.length ?? 0;
 
   async function regenerate() {
     try {
       await api.regenerateDiscoveries();
-      toast.info('Gerando o relatório', 'A IA leva de alguns segundos a poucos minutos, conforme o computador.');
+      toast.info('Gerando o relatório', 'A IA interpreta em lotes; na CPU, cada lote leva de um a dois minutos.');
       await report.reload();
     } catch (e) {
       toast.err('Não foi possível gerar', e instanceof ApiError ? e.message : undefined);
@@ -77,11 +80,25 @@ export function DiscoveriesPage() {
 
       {r && (
         <>
-          {generating && <Alerta severidade="info" titulo="A IA está interpretando as descobertas…" />}
+          {generating && (
+            <Alerta
+              severidade="info"
+              titulo="A IA está interpretando as descobertas…"
+              mensagem={
+                total
+                  ? `${interpreted} de ${total} interpretadas. Elas aparecem abaixo conforme ficam prontas.`
+                  : undefined
+              }
+            />
+          )}
           {r.status === 'erro' && (
             <Alerta
               severidade="warn"
-              titulo="Os números estão abaixo, mas a IA não conseguiu interpretar"
+              titulo={
+                interpreted
+                  ? 'A IA interpretou só parte das descobertas'
+                  : 'Os números estão abaixo, mas a IA não conseguiu interpretar'
+              }
               mensagem={r.error_message ?? ''}
             />
           )}

@@ -1,4 +1,5 @@
 from app.core.errors import OllamaUnavailableError
+from app.services.insight_service import INTERPRET_BATCH
 
 
 def test_discoveries_after_registration(client, registered, model):
@@ -13,11 +14,15 @@ def test_discoveries_after_registration(client, registered, model):
     assert first["chart"]["tipo"] == "dispersao"
     assert first["stats"]["q"] <= 0.10
     assert first["interpretation"] == "Interpretação d1"
+    assert all(d["interpretation"] for d in report["discoveries"])
     assert report["summary"] == "Resumo de teste."
     assert report["next_questions"] == ["Pergunta 1?", "Pergunta 2?"]
-    # o modelo recebe os fatos já calculados, como dado
-    prompt = model.json_calls[-1][-1]["content"]
-    assert prompt.startswith("<descobertas>")
+    # o modelo recebe os fatos já calculados, como dado, em lotes pequenos e depois todos para o resumo
+    # (as outras chamadas em JSON são dos alertas e do treino da previsão)
+    prompts = [call[-1]["content"] for call in model.json_calls if call[-1]["content"].startswith("<descobertas>")]
+    batches = [p.count("<descoberta ") for p in prompts[:-1]]
+    assert len(batches) > 1 and max(batches) <= INTERPRET_BATCH
+    assert prompts[-1].count("<descoberta ") == len(report["discoveries"])
 
 
 def test_report_without_model_keeps_the_facts(client, registered, model):
@@ -28,6 +33,25 @@ def test_report_without_model_keeps_the_facts(client, registered, model):
     assert report["error_message"] == "O Ollama não respondeu."
     assert report["discoveries"]
     assert report["discoveries"][0]["interpretation"] is None
+
+
+def test_a_failed_batch_keeps_the_others(client, registered, model):
+    original = model.chat_json
+    calls = {"n": 0}
+
+    def flaky(messages, schema):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OllamaUnavailableError("O Ollama demorou demais para responder.")
+        return original(messages, schema)
+
+    model.chat_json = flaky
+    assert client.post("/api/discoveries").status_code == 202
+    report = client.get("/api/discoveries").json()
+    interpreted = [d for d in report["discoveries"] if d["interpretation"]]
+    assert 0 < len(interpreted) < len(report["discoveries"])
+    assert report["summary"] == "Resumo de teste."
+    assert report["error_message"].startswith(f"A IA interpretou {len(interpreted)} de {len(report['discoveries'])}")
 
 
 def test_no_discoveries_yet(client):
