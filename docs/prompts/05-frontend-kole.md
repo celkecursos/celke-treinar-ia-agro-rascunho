@@ -51,7 +51,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
   as fontes (Open-Meteo CC BY 4.0 e IBGE) e onde roda a IA (este computador ou uma GPU externa).
 - `services/api.ts`: toda chamada à API, com `ApiError` e a mensagem do backend; `streamChat` com `fetch` e
   `AbortSignal`. `services/sse.ts`: leitura do streaming em blocos, com os eventos `conversation`, `thinking`,
-  `tool_call`, `tool_result`, `chart`, `token`, `done` e `error`.
+  `tool_call`, `tool_result`, `chart`, `token`, `discard` (apaga o texto mostrado da resposta), `done` e `error`.
 - `components/chartProps.ts` e `components/ChartView.tsx`: a especificação do backend vira o componente do Kole pelo
   `tipo`, trocando snake_case por camelCase. Nenhuma conta no frontend.
 - `hooks/usePolling.ts`: carrega e repete enquanto ativo.
@@ -62,7 +62,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 |---|---|
 | **Análises** (`/`) | Município (`CampoSelect`) e cultura (`Escolha` soja/milho) na URL; alertas do município; indicadores com minigráfico; os gráficos em `Card` (o primeiro na largura toda); estimativa da LSPA em `Tabela`; notas de método em card recolhível. Sem município: `Vazio` com o botão de cadastrar |
 | **Previsão (treino)** (`/previsao`) | O que o modelo aprendeu: safras de treino, modelos testados, erro do modelo × erro da tendência, variáveis com os coeficientes (`Chip`), equação treinada, explicação da IA; gráfico real × previsto; um card por safra prevista (previsto com faixa e variação × tendência, tendência, estimativa do IBGE, chuva); gráfico dos cenários; histórico de treinos; botão **Treinar de novo** na mesma linha do município e da cultura, depois do grupo soja/milho, treinando só o que está escolhido nessa linha, atualizando sozinho enquanto treina |
-| **Chat** (`/chat`) | `Conversa`, `Mensagem` e `CampoMensagem`, como num chat comum; exemplos de pergunta no vazio; a pergunta pode chegar por `?pergunta=`; enquanto gera, "Consultando: Chuva no período…"; gráficos dentro da resposta; ferramentas usadas como `Referencias` (nome amigável, fonte, resumo e argumentos); conversas salvas em `Dialogo` lateral, excluir com `useConfirmacao`, tentar de novo |
+| **Chat** (`/chat`) | `Conversa`, `Mensagem` e `CampoMensagem`, como num chat comum; exemplos de pergunta no vazio (um deles compara os municípios cadastrados); a pergunta pode chegar por `?pergunta=`; enquanto gera, "Consultando: Chuva no período…"; gráficos dentro da resposta; ferramentas usadas como `Referencias` (nome amigável, fonte, resumo e argumentos); conversas salvas em `Dialogo` lateral, excluir com `useConfirmacao`, tentar de novo |
 | **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |
 | **Municípios** (`/municipios`) | Cadastro com `CampoUf` e `CampoCidade` (lista do IBGE pelo backend); tabela com situação e a mensagem do passo atual, período da chuva, último ano da produção, ações (ver análises, excluir); botão **Coletar chuva agora**; atualização a cada 3 s |

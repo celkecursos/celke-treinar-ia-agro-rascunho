@@ -199,6 +199,8 @@ export type ChatEvent =
   | { type: 'tool_result'; result: ToolCallRecord }
   | { type: 'chart'; chart: ChartSpec }
   | { type: 'token'; text: string }
+  /** Apaga o texto mostrado até aqui: o modelo escreveu antes de chamar ferramentas. */
+  | { type: 'discard' }
   | { type: 'done' }
   | { type: 'error'; code: string; message: string };
 

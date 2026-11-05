@@ -150,6 +150,16 @@ def _forecast(c: Context, phrase: str) -> Example:
     return Example(question, "previsao_safra", {"municipio": name, "cultura": crop}, "")
 
 
+def _compare(c: Context, phrase: str) -> Example:
+    count = min(len(c.municipalities), c.rng.choice([2, 3]))
+    places = c.rng.sample(c.municipalities, count) if count >= 2 else c.municipalities * 2
+    names = [name for name, _ in places]
+    crop = c.rng.choice(["soja", "milho"])
+    listed = ", ".join(names[:-1]) + " e " + names[-1]
+    question = phrase.format(lista=listed, cultura=crop)
+    return Example(question, "comparar_municipios", {"municipios": names, "cultura": crop}, "")
+
+
 def _chart(c: Context, phrase: str, kind: str) -> Example:
     name, uf = c.place()
     crop = c.rng.choice(["soja", "milho"])
@@ -262,6 +272,16 @@ TEMPLATES: list[tuple[str, Callable[[Context, str], Example], list[str]]] = [
             "Qual a previsão para a próxima safra de {cultura} em {m}?",
             "Quanto o modelo prevê de rendimento de {cultura} em {m} ({uf})?",
             "O que esperar da próxima colheita de {cultura} em {m}?",
+        ],
+    ),
+    (
+        "comparar_municipios",
+        _compare,
+        [
+            "Em qual destes municípios rende mais {cultura}: {lista}?",
+            "Compare a produtividade de {cultura} entre {lista}.",
+            "Onde a lavoura de {cultura} é mais estável, {lista}?",
+            "Qual é melhor para plantar {cultura}: {lista}?",
         ],
     ),
     (

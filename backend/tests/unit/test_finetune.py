@@ -107,3 +107,21 @@ def test_phrases_use_the_right_article():
     for _, _, phrases in TEMPLATES:
         for phrase in phrases:
             assert "da {cultura}" not in phrase and "na {cultura}" not in phrase and " a {cultura}" not in phrase
+
+
+def test_score_compares_municipality_lists_in_any_order():
+    expected = {"municipios": ["Rio Verde", "Londrina"], "cultura": "soja"}
+    assert score(
+        "comparar_municipios",
+        expected,
+        "comparar_municipios",
+        {**expected, "municipios": ["londrina (PR)", "Rio Verde"]},
+    ) == (True, True)
+    assert score("comparar_municipios", expected, "comparar_municipios", {**expected, "municipios": ["Rio Verde"]}) == (
+        True,
+        False,
+    )
+    assert score("comparar_municipios", expected, "comparar_municipios", {**expected, "municipios": "Rio Verde"}) == (
+        True,
+        False,
+    )

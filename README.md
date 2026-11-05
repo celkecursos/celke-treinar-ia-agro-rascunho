@@ -258,8 +258,8 @@ Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o 
   Kole: combinado (chuva × rendimento, dois eixos), dispersão com regressão, barras divergentes (desvio), linhas
   (rendimento comparado, chuva mensal), mapa de calor (ano × mês) e ranking das referências. Estimativa da safra
   em andamento (LSPA) comparada ao rendimento esperado pela tendência.
-- **Chat:** 10 ferramentas (municípios, chuva no período, chuva das safras, produção, correlação, estimativa,
-  previsão do modelo treinado, descobertas, alertas e gráfico). Resposta em streaming; as ferramentas usadas aparecem como fontes e os gráficos
+- **Chat:** 11 ferramentas (municípios, chuva no período, chuva das safras, produção, correlação, estimativa,
+  previsão do modelo treinado, comparação entre municípios, descobertas, alertas e gráfico). Resposta em streaming; as ferramentas usadas aparecem como fontes e os gráficos
   aparecem dentro da resposta. Conversas salvas no PostgreSQL, com histórico, tentar de novo e exclusão.
 - **Descobertas:** varredura de chuva da safra, veranico e chuva de cada mês da janela × desvio do rendimento, com
   correção para muitos testes (Benjamini-Hochberg). Fatos fixos: pior safra, comparação com a UF e tendência. A IA
@@ -421,7 +421,10 @@ mudar o `.env` nem reiniciar. Um modelo maior não pede outra mudança no projet
   8B; o 14B pede GPU de 12 GB; o 32B, GPU de 24 GB ou mais (como a RTX 4090 da GPU externa).
 - **Tempo:** a primeira pergunta carrega o modelo na memória. Se der "demorou demais para responder" com um modelo
   grande, aumente `OLLAMA_TIMEOUT_SECONDS`.
-- **Contexto:** `CHAT_NUM_CTX` vale para todos os modelos; mais contexto ocupa mais memória.
+- **Contexto:** `CHAT_NUM_CTX` vale para todos os modelos; mais contexto ocupa mais memória. Quando a conversa
+  passa do contexto, o backend encurta os resultados mais antigos das ferramentas (o Ollama, sozinho, descartaria o
+  começo sem avisar, com as regras e a pergunta). Para comparar municípios, o chat usa `comparar_municipios`, um
+  resultado pequeno, em vez de consultar um por um.
 - **Fine-tuning:** para treinar o LoRA sobre o modelo maior, mude também `FINETUNE_BASE_MODEL` (ex.:
   `unsloth/Qwen3-14B`) e use o mesmo modelo como base no `criar_modelo.sh`.
 
@@ -452,7 +455,7 @@ mudar o `.env` nem reiniciar. Um modelo maior não pede outra mudança no projet
 - Com a GPU externa, as perguntas do chat e os resultados das ferramentas vão ao servidor alugado, sempre pelo
   túnel SSH. A chave privada do backend fica só no volume `backend-ssh`; a senha do servidor, quando usada para
   instalar a chave, não é guardada. Com **Neste computador** escolhido em **Modelo de IA**, nada disso sai do computador.
-- O modelo não escreve SQL nem executa comandos: escolhe uma das 10 ferramentas, e os argumentos são validados.
+- O modelo não escreve SQL nem executa comandos: escolhe uma das 11 ferramentas, e os argumentos são validados.
 - Os resultados das ferramentas são tratados como dado, não como instrução.
 
 ## Evolução do projeto

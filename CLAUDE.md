@@ -77,9 +77,11 @@ comandos e as variáveis de ambiente.
 - Agendador (`services/scheduler.py`): decide pelo registro no banco (`is_due`), então reiniciar não repete coleta.
   Chuva todo dia a partir de `RAIN_COLLECT_HOUR`; produção e estimativa a partir de `MONTHLY_COLLECT_DAY`.
 - Chat (`services/chat_service.py`) em Server-Sent Events: `conversation`, `thinking` (uma vez), `tool_call`,
-  `tool_result`, `chart`, `token`, `done` ou `error`. Qualquer evento novo precisa ser tratado também em
+  `tool_result`, `chart`, `token`, `discard`, `done` ou `error`. Qualquer evento novo precisa ser tratado também em
   `frontend/src/services/sse.ts`. A pergunta é gravada antes do streaming e a resposta no fim, com as ferramentas e
-  os gráficos. O histórico enviado ao modelo vem do banco, nunca do navegador.
+  os gráficos. O histórico enviado ao modelo vem do banco, nunca do navegador, com as chamadas e só o resumo dos
+  resultados. A conversa precisa caber em `CHAT_NUM_CTX` (`_fit_context` encurta os resultados mais antigos): toda
+  ferramenta nova devolve resultado enxuto, e comparação entre municípios é uma ferramenta só.
 - Gráficos: o backend monta a especificação em `services/charts.py` com os nomes das props do Kole em snake_case;
   o frontend só converte para camelCase (`components/chartProps.ts`).
 - Testes unitários usam os dublês de `tests/fakes.py` (fontes públicas, modelo, executor) e o serviço

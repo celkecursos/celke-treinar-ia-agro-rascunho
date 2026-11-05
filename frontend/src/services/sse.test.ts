@@ -34,6 +34,10 @@ describe('parseSseBlock', () => {
     });
     expect(parseSseBlock('event: outro\ndata: {}')).toBeNull();
   });
+
+  it('lê o evento que apaga o texto escrito antes das ferramentas', () => {
+    expect(parseSseBlock('event: discard\ndata: {}')).toEqual({ type: 'discard' });
+  });
 });
 
 describe('readSse', () => {

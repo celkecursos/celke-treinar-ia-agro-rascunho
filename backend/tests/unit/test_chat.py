@@ -1,4 +1,5 @@
 from app.core.errors import ModelNotInstalledError
+from app.services.chat_service import CALL_NOW, announces_lookup
 from app.services.ollama_service import ChatChunk
 from tests.fakes import tool_call
 from tests.helpers import ask, parse_sse
@@ -106,3 +107,113 @@ def test_conversations_list_and_delete(client):
     assert client.get("/api/conversations").json()["items"][0]["id"] == conversation_id
     assert client.delete(f"/api/conversations/{conversation_id}").status_code == 204
     assert client.get(f"/api/conversations/{conversation_id}").status_code == 404
+
+
+def test_text_before_tools_is_discarded(client, registered, model):
+    model.rounds = [
+        [ChatChunk("content", "Vou consultar a chuva. "), tool_call("listar_municipios")],
+        [ChatChunk("content", "Há 1 município cadastrado.")],
+    ]
+    events = parse_sse(ask(client, "Quais municípios?").text)
+    assert names(events)[:4] == ["conversation", "token", "discard", "tool_call"]
+    conversation = client.get(f"/api/conversations/{events[0][1]['id']}").json()
+    assert conversation["messages"][1]["content"] == "Há 1 município cadastrado."
+
+
+def test_announced_lookup_without_call_is_asked_once(client, registered, model):
+    model.rounds = [
+        [ChatChunk("content", "Vamos chamar as ferramentas para obter essas informações.")],
+        [tool_call("listar_municipios")],
+        [ChatChunk("content", "Há 1 município cadastrado.")],
+    ]
+    events = parse_sse(ask(client, "Quais municípios?").text)
+    assert "discard" in names(events)
+    assert names(events).count("tool_call") == 1
+    assert model.chat_calls[1][0][-1] == {"role": "user", "content": CALL_NOW}
+    conversation = client.get(f"/api/conversations/{events[0][1]['id']}").json()
+    assert conversation["messages"][1]["content"] == "Há 1 município cadastrado."
+
+
+def test_announced_lookup_is_asked_only_once(client, model):
+    promise = "Vou buscar os dados para você."
+    model.rounds = [[ChatChunk("content", promise)], [ChatChunk("content", promise)]]
+    events = parse_sse(ask(client, "Oi").text)
+    assert len(model.chat_calls) == 2
+    assert events[-1] == ("done", {})
+
+
+def test_announces_lookup():
+    assert announces_lookup("Vamos chamar as ferramentas para obter essas informações detalhadas.")
+    assert announces_lookup("Sim, estou buscando a resposta para sua pergunta.")
+    assert not announces_lookup("Vou consultar: em 2024 choveu 1.200 mm (Open-Meteo).")  # já traz número
+    assert not announces_lookup("Rio Verde teve rendimento maior.")
+
+
+def test_history_has_tool_calls_with_summaries(client, registered, model):
+    model.rounds = [[tool_call("listar_municipios")], [ChatChunk("content", "Há 1 município cadastrado.")]]
+    conversation_id = parse_sse(ask(client, "Quais municípios?").text)[0][1]["id"]
+    ask(client, "Compare com o estado", conversation_id=conversation_id)
+    history = model.chat_calls[-1][0]
+    assert [m["role"] for m in history] == ["system", "user", "assistant", "tool", "assistant", "user"]
+    assert history[2]["tool_calls"][0]["function"]["name"] == "listar_municipios"
+    assert "1 municípios cadastrados" in history[3]["content"]
+    assert "sem os números" in history[3]["content"]
+    # o texto da resposta fica como foi dado, sem o resumo colado (o modelo copiaria o formato)
+    assert history[4]["content"] == "Há 1 município cadastrado."
+
+
+def test_promise_only_answers_stay_out_of_history(container):
+    from app.schemas.conversations import Message
+    from app.services.chat_service import to_history
+
+    def message(role, content, calls=()):
+        return Message.model_construct(role=role, content=content, state="concluida", tool_calls=list(calls))
+
+    history = to_history(
+        [
+            message("user", "Compare os municípios"),
+            message("assistant", "Vamos chamar as ferramentas para obter essas informações."),
+            message("user", "E então?"),
+        ],
+        6,
+    )
+    assert [m["role"] for m in history] == ["user", "user"]
+
+
+def test_long_tool_results_are_shortened_to_fit_the_context(client, registered, model, settings):
+    settings.chat_num_ctx = 4000
+    model.rounds = [
+        [tool_call("consultar_producao", cultura="soja", nivel="municipio", municipio="Rio Verde")],
+        [tool_call("chuva_da_safra", cultura="soja", municipio="Rio Verde")],
+        [tool_call("consultar_producao", cultura="milho", nivel="municipio", municipio="Rio Verde")],
+        [ChatChunk("content", "Resposta.")],
+    ]
+    parse_sse(ask(client, "Tudo de Rio Verde").text)
+    messages, tools = model.chat_calls[-1]
+    from app.services.chat_service import ANSWER_RESERVE_TOKENS, estimate_tokens
+
+    assert estimate_tokens(messages, tools) <= settings.chat_num_ctx - ANSWER_RESERVE_TOKENS
+    # as regras e a pergunta continuam lá; o resultado mais antigo foi encurtado, o mais novo, não
+    assert messages[0]["role"] == "system"
+    assert messages[1]["content"] == "Tudo de Rio Verde"
+    tool_messages = [m for m in messages if m["role"] == "tool"]
+    assert "aviso_resultado" in tool_messages[0]["content"]
+    assert "aviso_resultado" not in tool_messages[-1]["content"]
+
+
+def test_answer_without_data_of_a_cited_municipality_is_asked_once(client, registered, model):
+    model.rounds = [
+        [ChatChunk("content", "Rio Verde rende bem.")],
+        [tool_call("comparar_municipios", municipios=["Rio Verde", "Londrina"], cultura="soja")],
+        [ChatChunk("content", "Comparação feita.")],
+    ]
+    events = parse_sse(ask(client, "Rio Verde é melhor que Londrina para soja?").text)
+    nudge = model.chat_calls[1][0][-1]["content"]
+    assert "Rio Verde (GO)" in nudge
+    assert names(events).count("tool_call") == 1
+    # já consultado nesta conversa: não pede de novo
+    model.rounds = [[ChatChunk("content", "Sim, conforme a comparação.")]]
+    conversation_id = events[0][1]["id"]
+    calls_before = len(model.chat_calls)
+    ask(client, "Então Rio Verde é melhor?", conversation_id=conversation_id)
+    assert len(model.chat_calls) == calls_before + 1

@@ -34,7 +34,7 @@ nova do agente, na pasta do projeto. Siga a **Verificação** de cada prompt ant
 | 1 | [Estrutura inicial e Docker](01-estrutura-e-docker.md) | Pastas, `compose.yaml` com Ollama e PostgreSQL, download do modelo, `.env.example`, scripts |
 | 2 | [Coleta de dados e análises](02-coleta-e-analises.md) | API FastAPI, clientes do Open-Meteo e do IBGE, cadastro de municípios, coletas com registro, agendador, análises com estatística e gráficos, testes |
 | 3 | [Treinar o modelo de previsão da safra](03-previsao-treinada.md) | Regressão treinada com as safras, validação deixando uma de fora, comparação com a tendência, cenários, histórico de treinos |
-| 4 | [IA com ferramentas: responder, descobrir e avisar](04-ia-com-ferramentas.md) | Chat com tool calling (10 ferramentas), conversas, descobertas com filtro estatístico, alertas, explicação da IA nos treinos |
+| 4 | [IA com ferramentas: responder, descobrir e avisar](04-ia-com-ferramentas.md) | Chat com tool calling (11 ferramentas), conversas, descobertas com filtro estatístico, alertas, explicação da IA nos treinos |
 | 5 | [Frontend React com o Kole](05-frontend-kole.md) | Análises, Previsão, Chat, Descobertas, Alertas, Municípios e Status com o `@celke/kole-react` e os gráficos dele |
 | 6 | [Fine-tuning do modelo de linguagem](06-fine-tuning.md) | Dataset de perguntas → ferramentas, avaliação antes e depois, treino LoRA na GPU local ou externa, modelo `celke-agro` no Ollama |
 | 7 | [Integração ponta a ponta](07-integracao.md) | Fluxo completo com as APIs públicas e o modelo real, persistência |

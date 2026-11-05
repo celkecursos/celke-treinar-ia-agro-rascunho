@@ -31,6 +31,7 @@ const TOOL_LABEL: Record<string, string> = {
   ver_descobertas: 'Descobertas',
   ver_alertas: 'Alertas',
   previsao_safra: 'Previsão do modelo treinado',
+  comparar_municipios: 'Comparação entre municípios',
   mostrar_grafico: 'Gráfico',
 };
 
@@ -40,6 +41,7 @@ const EXAMPLES = [
   'Qual foi a pior safra de milho e o que aconteceu com a chuva?',
   'Qual a previsão do modelo para a próxima safra de milho em Rio Verde?',
   'Qual a estimativa da safra de soja deste ano no Brasil?',
+  'Compare o rendimento da soja entre os municípios cadastrados.',
 ];
 
 function toReference(t: ToolCallRecord, i: number) {
@@ -154,6 +156,7 @@ export function ChatPage() {
           patch(assistantId, (m) => ({ toolCalls: [...m.toolCalls, event.result], working: undefined }));
         else if (event.type === 'chart') patch(assistantId, (m) => ({ charts: [...m.charts, event.chart] }));
         else if (event.type === 'token') patch(assistantId, (m) => ({ content: m.content + event.text }));
+        else if (event.type === 'discard') patch(assistantId, { content: '' });
         else if (event.type === 'error') {
           patch(assistantId, { state: 'erro', error: event.message, working: undefined });
           return;

@@ -23,6 +23,8 @@ export function parseSseBlock(block: string): ChatEvent | null {
       return { type: 'chart', chart: payload as ChartSpec };
     case 'token':
       return { type: 'token', text: String(payload.text ?? '') };
+    case 'discard':
+      return { type: 'discard' };
     case 'done':
       return { type: 'done' };
     case 'error':

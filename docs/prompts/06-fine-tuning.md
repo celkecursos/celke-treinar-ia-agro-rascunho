@@ -12,10 +12,11 @@ computador, inclusive na CPU.
 
 ## Dataset (`backend/app/finetune/dataset.py`)
 
-- Modelos de frase para cada ferramenta, com 3 redações cada, preenchidos com os municípios cadastrados, culturas,
+- Modelos de frase para cada ferramenta, com 3 redações cada (a comparação entre municípios tem 4), preenchidos com os municípios cadastrados, culturas,
   anos e meses sorteados (semente fixa): chuva de um mês, chuva mês a mês de um ano, chuva da safra (com o rótulo
   "2023/24" na soja → ano 2024), rendimento no município (com "milho safrinha"), produção na UF e no Brasil,
-  correlação com a chuva de um mês da janela e com o veranico, estimativa do IBGE, previsão, gráficos (o mapa de calor
+  correlação com a chuva de um mês da janela e com o veranico, estimativa do IBGE, previsão, comparação de 2 ou 3 municípios
+  ("Em qual destes municípios rende mais soja: A, B e C?", com `municipios` como lista), gráficos (o mapa de calor
   sem cultura), descobertas, alertas e municípios. Artigos certos: "de milho", "lavoura de soja".
 - **A última redação de cada modelo fica só na avaliação**: o modelo é medido com frases que nunca viu.
 - Perguntas reais do chat em que todas as ferramentas deram certo (a primeira chamada é o alvo).
@@ -27,8 +28,8 @@ computador, inclusive na CPU.
 Para cada pergunta da avaliação, o modelo do Ollama recebe o prompt de sistema, a pergunta e as ferramentas
 (temperatura 0, sem raciocínio) e a primeira chamada é comparada ao alvo: ferramenta certa; ferramenta e argumentos
 certos (texto sem acento e sem diferença de maiúsculas, números como inteiros; argumento a mais não é erro; agrupar
-por mês um único mês equivale ao total). Relatório JSON com os percentuais, o tempo por pergunta, o acerto por modelo
-de frase e cada erro (esperado × recebido).
+por mês um único mês equivale ao total; lista de municípios em qualquer ordem, com ou sem a UF). Relatório JSON
+com os percentuais, o tempo por pergunta, o acerto por modelo de frase e cada erro (esperado × recebido).
 
 Linha de comando no container do backend: `python -m app.finetune exportar --saida /finetuning/data` e
 `python -m app.finetune avaliar --modelo <modelo>`.

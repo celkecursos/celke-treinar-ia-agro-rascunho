@@ -11,10 +11,19 @@ from typing import Any
 import ollama
 
 from app.core.domain import normalize
-from app.services.tools import TOOLS
+from app.services.tools import TOOLS, split_place
 
 
 def same_value(expected: Any, got: Any) -> bool:
+    if isinstance(expected, list):
+        # municípios em qualquer ordem, com ou sem a UF: "Londrina (PR)" vale o mesmo que "Londrina"
+        if not isinstance(got, list):
+            return False
+
+        def key(value: Any) -> str:
+            return normalize(split_place(str(value))[0])
+
+        return sorted(map(key, expected)) == sorted(map(key, got))
     if isinstance(expected, str):
         return isinstance(got, str) and normalize(got) == normalize(expected)
     if isinstance(expected, int):

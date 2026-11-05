@@ -1159,6 +1159,7 @@ const TOOL_LABEL: Record<string, string> = {
   ver_descobertas: 'Descobertas',
   ver_alertas: 'Alertas',
   previsao_safra: 'Previsão do modelo treinado',
+  comparar_municipios: 'Comparação entre municípios',
   mostrar_grafico: 'Gráfico',
 };
 
@@ -1168,6 +1169,7 @@ const EXAMPLES = [
   'Qual foi a pior safra de milho e o que aconteceu com a chuva?',
   'Qual a previsão do modelo para a próxima safra de milho em Rio Verde?',
   'Qual a estimativa da safra de soja deste ano no Brasil?',
+  'Compare o rendimento da soja entre os municípios cadastrados.',
 ];
 
 function toReference(t: ToolCallRecord, i: number) {
@@ -1282,6 +1284,7 @@ export function ChatPage() {
           patch(assistantId, (m) => ({ toolCalls: [...m.toolCalls, event.result], working: undefined }));
         else if (event.type === 'chart') patch(assistantId, (m) => ({ charts: [...m.charts, event.chart] }));
         else if (event.type === 'token') patch(assistantId, (m) => ({ content: m.content + event.text }));
+        else if (event.type === 'discard') patch(assistantId, { content: '' });
         else if (event.type === 'error') {
           patch(assistantId, { state: 'erro', error: event.message, working: undefined });
           return;
@@ -2527,6 +2530,10 @@ describe('parseSseBlock', () => {
     });
     expect(parseSseBlock('event: outro\ndata: {}')).toBeNull();
   });
+
+  it('lê o evento que apaga o texto escrito antes das ferramentas', () => {
+    expect(parseSseBlock('event: discard\ndata: {}')).toEqual({ type: 'discard' });
+  });
 });
 
 describe('readSse', () => {
@@ -2568,6 +2575,8 @@ export function parseSseBlock(block: string): ChatEvent | null {
       return { type: 'chart', chart: payload as ChartSpec };
     case 'token':
       return { type: 'token', text: String(payload.text ?? '') };
+    case 'discard':
+      return { type: 'discard' };
     case 'done':
       return { type: 'done' };
     case 'error':
@@ -3173,6 +3182,8 @@ export type ChatEvent =
   | { type: 'tool_result'; result: ToolCallRecord }
   | { type: 'chart'; chart: ChartSpec }
   | { type: 'token'; text: string }
+  /** Apaga o texto mostrado até aqui: o modelo escreveu antes de chamar ferramentas. */
+  | { type: 'discard' }
   | { type: 'done' }
   | { type: 'error'; code: string; message: string };
 

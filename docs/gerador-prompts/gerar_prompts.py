@@ -349,7 +349,7 @@ F02 = f"""# Backend: dados, previsão treinada e IA com ferramentas
 
 Crie o backend do **Celke Treinar IA Agro** em FastAPI: clientes do Open-Meteo e do IBGE com lista fixa de endereços,
 cadastro de municípios, coletas com registro (uma por vez em cada fonte), agendador, análises de chuva × rendimento,
-modelo de previsão treinado e validado deixando uma safra de fora, chat com 10 ferramentas (streaming em Server-Sent
+modelo de previsão treinado e validado deixando uma safra de fora, chat com 11 ferramentas (streaming em Server-Sent
 Events), descobertas com filtro estatístico, alertas da safra e o dataset e a avaliação do fine-tuning
 (`python -m app.finetune`). Os testes usam dublês: sem internet e sem Ollama.
 

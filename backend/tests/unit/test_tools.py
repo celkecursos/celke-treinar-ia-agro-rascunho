@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from app.services.tools import TOOLS, correlation_words
+from app.services.tools import COMPACT_ITEMS, TOOLS, correlation_words, split_place
 
 
 @pytest.fixture
@@ -10,7 +12,7 @@ def tools(container, registered):
 
 def test_every_tool_is_declared_with_parameters():
     names = [t["function"]["name"] for t in TOOLS]
-    assert len(names) == len(set(names)) == 10
+    assert len(names) == len(set(names)) == 11
     for tool in TOOLS:
         assert tool["type"] == "function"
         assert tool["function"]["parameters"]["type"] == "object"
@@ -90,3 +92,55 @@ def test_correlation_of_one_month(tools):
     )
     assert not outside.ok
     assert "janeiro, fevereiro, março, abril" in outside.summary
+
+
+def test_compare_municipalities_comes_computed(tools, client):
+    assert client.post("/api/municipalities", json={"code": 4113700}).status_code == 201  # Londrina (PR)
+    result = tools.run(
+        "comparar_municipios", {"municipios": ["Rio Verde", "Londrina (PR)", "Cidade Nenhuma"], "cultura": "soja"}
+    )
+    assert result.ok
+    rows = {r["municipio"]: r for r in result.content["municipios"]}
+    assert set(rows) == {"Rio Verde (GO)", "Londrina (PR)"}
+    rio = rows["Rio Verde (GO)"]
+    assert rio["safras_comparadas"].endswith("(10 safras)")
+    assert rio["rendimento_medio_kg_ha"] > 0
+    assert rio["crescimento_do_rendimento_kg_ha_por_ano"] > 0  # os dados sintéticos crescem 40 kg/ha por ano
+    assert rio["oscilacao_media_em_torno_da_tendencia_pct"] >= 0
+    assert rio["ultima_safra"]["ano"] == 2024
+    assert sorted(result.content["ordem_por_rendimento_medio"]) == sorted(rows)
+    assert "não está cadastrado" in result.content["nao_comparados"][0]
+    assert "não uma recomendação" in result.content["cuidado"]
+    # cabe folgado no contexto do modelo, ao contrário de consultar município por município
+    assert len(result.for_model()) < 3000
+
+
+def test_compare_accepts_common_shapes(tools):
+    one_string = tools.run("comparar_municipios", {"municipios": "Rio Verde e Rio Verde (GO)", "cultura": "milho"})
+    assert one_string.ok
+    assert len(one_string.content["municipios"]) == 1  # o mesmo município duas vezes conta uma
+    objects = tools.run(
+        "comparar_municipios",
+        {"municipios": [{"municipio": "Rio Verde", "uf": "GO"}, {"municipio": "X"}], "cultura": "soja"},
+    )
+    assert objects.ok
+    assert not tools.run("comparar_municipios", {"municipios": ["Rio Verde"], "cultura": "soja"}).ok
+    assert not tools.run("comparar_municipios", {"municipios": ["A", "B"], "cultura": "soja"}).ok
+
+
+def test_split_place():
+    assert split_place("Rio Verde (GO)") == ("Rio Verde", "GO")
+    assert split_place("Londrina - pr") == ("Londrina", "PR")
+    assert split_place("Paulo Frontin/PR") == ("Paulo Frontin", "PR")
+    assert split_place("Rio Verde") == ("Rio Verde", None)
+
+
+def test_compact_keeps_the_latest_items(tools):
+    result = tools.run("consultar_producao", {"cultura": "soja", "nivel": "municipio", "municipio": "Rio Verde"})
+    assert len(result.content["anos"]) > COMPACT_ITEMS
+    compact = json.loads(result.compact())
+    assert compact["anos"] == result.content["anos"][-COMPACT_ITEMS:]
+    assert "aviso_resultado_encurtado" in compact
+    only = json.loads(result.summary_only())
+    assert only["resumo"] == result.summary
+    assert "anos" not in only

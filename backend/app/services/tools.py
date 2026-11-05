@@ -2,13 +2,14 @@
 código valida, consulta o banco e faz as contas. Nada de SQL escrito pelo modelo."""
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core import format as fmt
 from app.core.domain import BRAZIL_CODE, CROPS, MONTH_NAMES, STATES_BY_ACRONYM, normalize
@@ -27,6 +28,10 @@ RAIN_SOURCE = "Open-Meteo (reanálise ERA5)"
 PAM_SOURCE = "IBGE · Produção Agrícola Municipal"
 LSPA_SOURCE = "IBGE · Levantamento Sistemático da Produção Agrícola"
 MAX_DAILY_DAYS = 62
+# Resultado encurtado (para caber no contexto do modelo): quantos itens de cada lista ficam, os mais recentes.
+COMPACT_ITEMS = 8
+MAX_COMPARED = 5
+BAD_SEASON_PCT = -10.0
 
 CropKey = Literal["soja", "milho"]
 
@@ -45,6 +50,35 @@ class ToolResult:
 
     def for_model(self) -> str:
         return json.dumps(self.content, ensure_ascii=False, default=str)
+
+    def compact(self) -> str:
+        """O mesmo resultado com só os itens mais recentes de cada lista longa: para caber no contexto do modelo."""
+        content: dict[str, Any] = {}
+        cut = False
+        for key, value in self.content.items():
+            if isinstance(value, list) and len(value) > COMPACT_ITEMS:
+                content[key], cut = value[-COMPACT_ITEMS:], True
+            elif isinstance(value, dict) and len(value) > COMPACT_ITEMS:
+                content[key], cut = dict(list(value.items())[-COMPACT_ITEMS:]), True
+            else:
+                content[key] = value
+        if cut:
+            content["aviso_resultado_encurtado"] = (
+                f"Para caber na memória do modelo, cada lista mostra só os {COMPACT_ITEMS} itens mais recentes. "
+                "Para outros anos, chame a ferramenta de novo com um período menor."
+            )
+        return json.dumps(content, ensure_ascii=False, default=str)
+
+    def summary_only(self) -> str:
+        """Só o resumo, quando nem o resultado encurtado cabe no contexto."""
+        return json.dumps(
+            {
+                "resumo": self.summary,
+                "aviso_resultado_removido": "Os números deste resultado foram removidos para caber na memória do "
+                "modelo. Não cite números dele; chame a ferramenta de novo, com um período menor, se precisar.",
+            },
+            ensure_ascii=False,
+        )
 
 
 class Place(BaseModel):
@@ -95,6 +129,38 @@ class NoArgs(BaseModel):
 
 class ForecastArgs(Place):
     cultura: CropKey
+
+
+PLACE_WITH_STATE = re.compile(r"^(.*?)\s*(?:\(([A-Za-z]{2})\)|[-/]\s*([A-Za-z]{2}))\s*$")
+
+
+def split_place(text: str) -> tuple[str, str | None]:
+    """ "Rio Verde (GO)", "Rio Verde - GO" ou "Rio Verde/GO" viram ("Rio Verde", "GO"); sem UF, ("Rio Verde", None)."""
+    match = PLACE_WITH_STATE.match(text.strip())
+    if match and (match.group(2) or match.group(3)).upper() in STATES_BY_ACRONYM:
+        return match.group(1).strip(), (match.group(2) or match.group(3)).upper()
+    return text.strip(), None
+
+
+class CompareArgs(BaseModel):
+    municipios: list[str] = Field(min_length=2, max_length=MAX_COMPARED)
+    cultura: CropKey
+    ultimas_safras: int = Field(default=10, ge=3, le=30)
+
+    @field_validator("municipios", mode="before")
+    @classmethod
+    def accept_common_shapes(cls, value: Any) -> Any:
+        # alguns modelos mandam "A, B e C" numa string só, ou objetos {"municipio", "uf"}
+        if isinstance(value, str):
+            value = [v for v in re.split(r",|;|\se\s", value) if v.strip()]
+        if isinstance(value, list):
+            value = [
+                f"{v.get('municipio', '')} ({v['uf']})"
+                if isinstance(v, dict) and v.get("uf")
+                else (v.get("municipio", "") if isinstance(v, dict) else v)
+                for v in value
+            ]
+        return value
 
 
 class ChartArgs(Place):
@@ -178,6 +244,23 @@ TOOL_SPECS: dict[str, dict] = {
         {"municipio": MUNICIPIO, "uf": UF, "cultura": CULTURA},
         ["municipio", "cultura"],
     ),
+    "comparar_municipios": _schema(
+        "Compara de 2 a 5 municípios cadastrados numa cultura, com as contas já feitas: rendimento médio das últimas "
+        "safras, crescimento por ano, oscilação em torno da tendência, safras ruins, diferença para a média da UF, "
+        "chuva média da janela e veranico. Use para qualquer pergunta que compare municípios (onde rende mais, qual é "
+        "mais estável), em vez de consultar um por um.",
+        {
+            "municipios": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Nomes dos municípios cadastrados, com a UF entre parênteses se houver dois com o "
+                'mesmo nome, ex.: ["Rio Verde", "Londrina (PR)"]',
+            },
+            "cultura": CULTURA,
+            "ultimas_safras": {"type": "integer", "description": "Quantas safras recentes comparar (padrão 10)"},
+        },
+        ["municipios", "cultura"],
+    ),
     "mostrar_grafico": _schema(
         "Mostra um gráfico na resposta. Use quando ajudar a pessoa a ver o dado.",
         {
@@ -246,6 +329,7 @@ class ToolExecutor:
             "ver_descobertas": (OptionalPlace, self._discoveries),
             "ver_alertas": (NoArgs, self._alerts),
             "previsao_safra": (ForecastArgs, self._forecast),
+            "comparar_municipios": (CompareArgs, self._compare),
             "mostrar_grafico": (ChartArgs, self._chart),
         }
 
@@ -531,6 +615,85 @@ class ToolExecutor:
             f"Previsão {CROPS[args.cultura].of} em {r.municipality_name} (erro médio {fmt.number(r.error_pct, 1)}%)"
         )
         return ToolResult(True, content, summary, "Modelo de previsão treinado")
+
+    def _compare(self, args: CompareArgs) -> ToolResult:
+        found: list[Municipality] = []
+        problems: list[str] = []
+        for text in args.municipios:
+            name, uf = split_place(text)
+            try:
+                m = self._find(name, uf)
+            except ToolInputError as exc:
+                problems.append(exc.message)
+                continue
+            if all(m.code != f.code for f in found):
+                found.append(m)
+        if not found:
+            raise ToolInputError(" ".join(problems))
+        crop = CROPS[args.cultura]
+        rows = [self._compare_one(m, args.cultura, args.ultimas_safras) for m in found]
+        ranked = [r for r in rows if "rendimento_medio_kg_ha" in r]
+        content: dict[str, Any] = {
+            "cultura": crop.name,
+            "municipios": rows,
+            "ordem_por_rendimento_medio": [
+                r["municipio"] for r in sorted(ranked, key=lambda r: r["rendimento_medio_kg_ha"], reverse=True)
+            ],
+            "ordem_por_estabilidade": [
+                r["municipio"] for r in sorted(ranked, key=lambda r: r["oscilacao_media_em_torno_da_tendencia_pct"])
+            ],
+            "como_ler": "Rendimento médio e crescimento por ano: quanto a lavoura produz por hectare e como evolui. "
+            "Oscilação em torno da tendência e safras ruins: o risco de uma safra fraca. Diferença para a UF: a "
+            "posição do município no próprio estado.",
+            "cuidado": "Estes dados não dizem sozinhos onde é melhor plantar: solo, clima de cada talhão, custo da "
+            "terra, logística, preço e manejo não estão aqui. É uma comparação do histórico, não uma recomendação.",
+            "fonte": f"{PAM_SOURCE} e {RAIN_SOURCE}",
+        }
+        if problems:
+            content["nao_comparados"] = problems
+        names = ", ".join(place(m) for m in found)
+        summary = f"Comparação {crop.of} entre {names} (até {args.ultimas_safras} safras)"
+        return ToolResult(True, content, summary, f"{PAM_SOURCE} e {RAIN_SOURCE}")
+
+    def _compare_one(self, m: Municipality, crop_key: str, count: int) -> dict[str, Any]:
+        data = self._analyses.season_data(m.code, crop_key)
+        last = [s for s in data.seasons if s.yield_kg_ha is not None][-count:]
+        if len(last) < 3:
+            return {"municipio": place(m), "aviso": "Menos de 3 safras com produção guardada: sem comparação."}
+        years = [s.year for s in last]
+        yields = [s.yield_kg_ha for s in last if s.yield_kg_ha is not None]
+        anomalies = [(s.year, s.yield_anomaly_pct) for s in last if s.yield_anomaly_pct is not None]
+        rains = [s.rain_mm for s in last if s.rain_mm is not None]
+        dry = [float(s.dry_spell_days) for s in last if s.dry_spell_days is not None]
+        state = [s.yield_state_kg_ha for s in last if s.yield_state_kg_ha is not None]
+        average = mean(yields) or 0
+        state_average = mean(state) if len(state) == len(yields) else None
+        fit = linear_fit([float(y) for y in years], yields)
+        worst = min(anomalies, key=lambda a: a[1]) if anomalies else None
+        latest = max(
+            (c for c in self._crops.yearly("municipio", m.code, crop_key) if c.yield_kg_ha), key=lambda c: c.year
+        )
+        return {
+            "municipio": place(m),
+            "safras_comparadas": f"{years[0]} a {years[-1]} ({len(last)} safras)",
+            "rendimento_medio_kg_ha": round(average),
+            "rendimento_medio_da_uf_nas_mesmas_safras_kg_ha": round(state_average) if state_average else None,
+            "diferenca_do_rendimento_medio_para_a_uf_pct": round(percent_change(average, state_average) or 0, 1)
+            if state_average
+            else None,
+            "crescimento_do_rendimento_kg_ha_por_ano": round(fit.slope, 1) if fit else None,
+            "oscilacao_media_em_torno_da_tendencia_pct": round(mean([abs(a) for _, a in anomalies]) or 0, 1),
+            "safras_mais_de_10pct_abaixo_da_tendencia": sum(1 for _, a in anomalies if a < BAD_SEASON_PCT),
+            "pior_safra": {"safra": worst[0], "desvio_da_tendencia_pct": worst[1]} if worst else None,
+            "chuva_media_da_janela_mm": round(mean(rains) or 0, 1) if rains else None,
+            "maior_veranico_medio_dias": round(mean(dry) or 0, 1) if dry else None,
+            "ultima_safra": {
+                "ano": latest.year,
+                "producao_t": latest.production_t,
+                "area_plantada_ha": latest.planted_area_ha,
+                "rendimento_kg_ha": latest.yield_kg_ha,
+            },
+        }
 
     def _chart(self, args: ChartArgs) -> ToolResult:
         m = self._find(args.municipio, args.uf)
