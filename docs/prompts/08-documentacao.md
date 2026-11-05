@@ -32,7 +32,7 @@ Convenções para agentes e desenvolvedores: a tabela das pastas e stacks; branc
 calcula, o modelo interpreta; ferramenta nova com Pydantic, `TOOL_SPECS`, `_handlers`, números prontos, `fonte`,
 `summary` e nomes de campo explícitos; glossário); os dois treinamentos e o que manter ao mudar cada um; regras
 gerais (Docker, idiomas, segredos, variáveis em quatro lugares, portas, endereços permitidos); backend (camadas, erros,
-coletas, agendador, eventos do chat, gráficos, testes); frontend (Kole do GitHub até sair no npm, estilos, ícones,
+coletas, agendador, eventos do chat, gráficos, testes); frontend (Kole do npm, estilos, ícones,
 API); prompts do tutorial (originais, sem datas; `docs/prompts-iniciais` gerado e conferido).
 
 ## Verificação

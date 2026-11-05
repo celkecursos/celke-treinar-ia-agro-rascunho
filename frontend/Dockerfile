@@ -1,6 +1,4 @@
 FROM node:24-alpine AS build
-# git: o @celke/kole-react vem direto do GitHub (tag fixa) até a versão com gráficos sair no npm
-RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

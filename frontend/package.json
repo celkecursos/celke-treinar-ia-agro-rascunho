@@ -11,7 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0",
+    "@celke/kole-react": "^0.4.1",
     "lucide-react": "^1.60.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

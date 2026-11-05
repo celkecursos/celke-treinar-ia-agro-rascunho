@@ -12,15 +12,14 @@ nginx serve o build e repassa `/api` ao backend, então o navegador só fala com
 1. Instale e leia a biblioteca: depois do `npm install`, o `node_modules/@celke/kole-react/README.md` e os tipos em
    `node_modules/@celke/kole-react/dist`. Use só componentes, props e exports que existem. As props são em português
    (`rotulo`, `valor`, `aoMudar`) e ficam como estão.
-2. Os gráficos estão na versão 0.4.0. Enquanto ela não estiver no npm, instale direto do GitHub:
-   `"@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0"` (o `prepare` do pacote gera o
-   `dist`). O `Dockerfile` instala o `git` no estágio de build por causa disso.
+2. O Kole vem do npm (`npm i @celke/kole-react`), na versão 0.4.1 ou mais nova da 0.4: os gráficos chegaram na
+   0.4.0, e a 0.4.1 mostra o cursor de mão em todo o `CampoSelect`, inclusive com `comBusca`.
 
 ## Dependências (`frontend/package.json`)
 
 ```json
 "dependencies": {
-  "@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0",
+  "@celke/kole-react": "^0.4.1",
   "lucide-react": "^1.60.0",
   "react": "^19.3.1",
   "react-dom": "^19.3.1",

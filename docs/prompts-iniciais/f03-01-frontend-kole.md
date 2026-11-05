@@ -10,8 +10,8 @@
 
 ## Prompt
 
-Crie o frontend do **Celke Treinar IA Agro** em React, TypeScript e Vite, com o `@celke/kole-react` (com os gráficos,
-instalado do GitHub na tag `v0.4.0`) e nginx com proxy da API.
+Crie o frontend do **Celke Treinar IA Agro** em React, TypeScript e Vite, com o `@celke/kole-react` (versão 0.4.1
+do npm, com os gráficos) e nginx com proxy da API.
 
 Regras desta etapa:
 
@@ -36,8 +36,6 @@ dist
 
 ``````dockerfile
 FROM node:24-alpine AS build
-# git: o @celke/kole-react vem direto do GitHub (tag fixa) até a versão com gráficos sair no npm
-RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -139,7 +137,7 @@ server {
     "preview": "vite preview"
   },
   "dependencies": {
-    "@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0",
+    "@celke/kole-react": "^0.4.1",
     "lucide-react": "^1.60.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -3364,7 +3362,7 @@ Por último, gere o `frontend/package-lock.json` sem exigir Node no computador. 
 `<pasta frontend absoluta>` pelo caminho real (no Git Bash do Windows, prefixe o comando com `MSYS_NO_PATHCONV=1`):
 
 ```bash
-docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine sh -c "apk add --no-cache git > /dev/null && npm install --package-lock-only --no-audit --no-fund"
+docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine npm install --package-lock-only --no-audit --no-fund
 ```
 
 ## Verificação

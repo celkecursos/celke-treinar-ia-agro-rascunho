@@ -91,8 +91,8 @@ comandos e as variáveis de ambiente.
 
 - Use os componentes reais do `@celke/kole-react` (veja o README do pacote e os tipos em
   `node_modules/@celke/kole-react/dist`). Não invente componentes nem props.
-- O Kole vem do GitHub (tag `v0.4.0`, com os gráficos) até a versão sair no npm; por isso o `Dockerfile` instala o
-  git. Quando sair no npm, troque a dependência por `^0.4.0` e gere o `package-lock.json` de novo.
+- O Kole vem do npm (`"@celke/kole-react": "^0.4.1"`, com os gráficos). Para atualizar: `npm i @celke/kole-react`
+  pelo Docker e gere o `package-lock.json` de novo.
 - Estilos próprios só em `src/styles.css`, com as variáveis do tema do Kole; nada de cor fixa.
 - Ícones pelo nome: os que não vêm registrados no Kole são registrados em `src/main.tsx` com `registrarIcones`.
 - Toda chamada à API passa por `src/services/api.ts`.

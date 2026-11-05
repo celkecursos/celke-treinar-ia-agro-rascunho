@@ -631,8 +631,8 @@ comandos e as variáveis de ambiente.
 
 - Use os componentes reais do `@celke/kole-react` (veja o README do pacote e os tipos em
   `node_modules/@celke/kole-react/dist`). Não invente componentes nem props.
-- O Kole vem do GitHub (tag `v0.4.0`, com os gráficos) até a versão sair no npm; por isso o `Dockerfile` instala o
-  git. Quando sair no npm, troque a dependência por `^0.4.0` e gere o `package-lock.json` de novo.
+- O Kole vem do npm (`"@celke/kole-react": "^0.4.1"`, com os gráficos). Para atualizar: `npm i @celke/kole-react`
+  pelo Docker e gere o `package-lock.json` de novo.
 - Estilos próprios só em `src/styles.css`, com as variáveis do tema do Kole; nada de cor fixa.
 - Ícones pelo nome: os que não vêm registrados no Kole são registrados em `src/main.tsx` com `registrarIcones`.
 - Toda chamada à API passa por `src/services/api.ts`.
@@ -1047,8 +1047,8 @@ F03 = f"""# Frontend React com o Kole
 
 ## Prompt
 
-Crie o frontend do **Celke Treinar IA Agro** em React, TypeScript e Vite, com o `@celke/kole-react` (com os gráficos,
-instalado do GitHub na tag `v0.4.0`) e nginx com proxy da API.
+Crie o frontend do **Celke Treinar IA Agro** em React, TypeScript e Vite, com o `@celke/kole-react` (versão 0.4.1
+do npm, com os gráficos) e nginx com proxy da API.
 
 {RULES}
 {blocks(FRONTEND)}
@@ -1056,7 +1056,7 @@ Por último, gere o `frontend/package-lock.json` sem exigir Node no computador. 
 `<pasta frontend absoluta>` pelo caminho real (no Git Bash do Windows, prefixe o comando com `MSYS_NO_PATHCONV=1`):
 
 ```bash
-docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine sh -c "apk add --no-cache git > /dev/null && npm install --package-lock-only --no-audit --no-fund"
+docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine npm install --package-lock-only --no-audit --no-fund
 ```
 
 ## Verificação
@@ -1998,15 +1998,14 @@ nginx serve o build e repassa `/api` ao backend, então o navegador só fala com
 1. Instale e leia a biblioteca: depois do `npm install`, o `node_modules/@celke/kole-react/README.md` e os tipos em
    `node_modules/@celke/kole-react/dist`. Use só componentes, props e exports que existem. As props são em português
    (`rotulo`, `valor`, `aoMudar`) e ficam como estão.
-2. Os gráficos estão na versão 0.4.0. Enquanto ela não estiver no npm, instale direto do GitHub:
-   `"@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0"` (o `prepare` do pacote gera o
-   `dist`). O `Dockerfile` instala o `git` no estágio de build por causa disso.
+2. O Kole vem do npm (`npm i @celke/kole-react`), na versão 0.4.1 ou mais nova da 0.4: os gráficos chegaram na
+   0.4.0, e a 0.4.1 mostra o cursor de mão em todo o `CampoSelect`, inclusive com `comBusca`.
 
 ## Dependências (`frontend/package.json`)
 
 ```json
 "dependencies": {
-  "@celke/kole-react": "git+https://github.com/celkecursos/kole-react.git#v0.4.0",
+  "@celke/kole-react": "^0.4.1",
   "lucide-react": "^1.60.0",
   "react": "^19.3.1",
   "react-dom": "^19.3.1",
@@ -2253,7 +2252,7 @@ Convenções para agentes e desenvolvedores: a tabela das pastas e stacks; branc
 calcula, o modelo interpreta; ferramenta nova com Pydantic, `TOOL_SPECS`, `_handlers`, números prontos, `fonte`,
 `summary` e nomes de campo explícitos; glossário); os dois treinamentos e o que manter ao mudar cada um; regras
 gerais (Docker, idiomas, segredos, variáveis em quatro lugares, portas, endereços permitidos); backend (camadas, erros,
-coletas, agendador, eventos do chat, gráficos, testes); frontend (Kole do GitHub até sair no npm, estilos, ícones,
+coletas, agendador, eventos do chat, gráficos, testes); frontend (Kole do npm, estilos, ícones,
 API); prompts do tutorial (originais, sem datas; `docs/prompts-iniciais` gerado e conferido).
 
 ## Verificação
