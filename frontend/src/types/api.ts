@@ -252,7 +252,7 @@ export interface SystemStatus {
   backend: { online: boolean; error: string | null };
   ollama: OllamaStatus;
   gpu: GpuStatus;
-  database: { online: boolean; error: string | null };
+  database: { online: boolean; error: string | null; vector_version: string | null };
   scheduler: { enabled: boolean; timezone: string; rain_hour: number; monthly_day: number };
 }
 

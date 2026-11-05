@@ -2310,7 +2310,10 @@ export function StatusPage() {
               />
             </li>
             <li>
-              <span>PostgreSQL (dados, coletas e conversas)</span>
+              <span>
+                PostgreSQL{s?.database.vector_version && ` com pgvector ${s.database.vector_version}`} (dados, coletas e
+                conversas)
+              </span>
               <OnlineStatus online={!!s?.database.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>
@@ -3225,7 +3228,7 @@ export interface SystemStatus {
   backend: { online: boolean; error: string | null };
   ollama: OllamaStatus;
   gpu: GpuStatus;
-  database: { online: boolean; error: string | null };
+  database: { online: boolean; error: string | null; vector_version: string | null };
   scheduler: { enabled: boolean; timezone: string; rain_hour: number; monthly_day: number };
 }
 

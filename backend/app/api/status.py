@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from app.api.deps import ContainerDep
 from app.core.errors import AppError
-from app.schemas.status import Health, SchedulerStatus, ServiceStatus, SystemStatus
+from app.schemas.status import DatabaseStatus, Health, SchedulerStatus, ServiceStatus, SystemStatus
 
 router = APIRouter(tags=["Estado"])
 
@@ -15,10 +15,9 @@ def health() -> Health:
 @router.get("/status", response_model=SystemStatus, summary="Estado dos serviços e do agendador")
 def system_status(c: ContainerDep) -> SystemStatus:
     try:
-        c.database.ping()
-        database = ServiceStatus(online=True)
+        database = DatabaseStatus(online=True, vector_version=c.database.ping())
     except AppError as exc:
-        database = ServiceStatus(online=False, error=exc.message)
+        database = DatabaseStatus(online=False, error=exc.message)
     s = c.settings
     return SystemStatus(
         backend=ServiceStatus(online=True),

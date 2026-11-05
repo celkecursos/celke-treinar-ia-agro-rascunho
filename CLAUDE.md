@@ -5,7 +5,7 @@ comandos e as variáveis de ambiente.
 
 | Pasta | Projeto | Stack |
 |---|---|---|
-| `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL (psycopg 3) |
+| `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL 18 com pgvector (psycopg 3) |
 | `finetuning/` | Treino LoRA na GPU e criação do modelo no Ollama | Python 3.12, Unsloth (versões fixas), Docker com GPU NVIDIA |
 | `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e Modelo de IA | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
 | raiz | Docker Compose, scripts de inicialização | Docker Compose |
@@ -58,7 +58,6 @@ comandos e as variáveis de ambiente.
   `app_settings`). O fine-tuning remoto é o `finetuning/treinar_remoto.sh` (sem argumento, usa o servidor do painel).
 - O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py` e, por SSH, o servidor da GPU
   externa cadastrado no painel.
-- Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
 - Nas fontes públicas, o backend usa HTTPS e só envia parâmetros de consulta (nomes de municípios, coordenadas,
   datas, códigos do IBGE).
 
@@ -68,7 +67,9 @@ comandos e as variáveis de ambiente.
   `%s`). Os objetos compartilhados são criados em `core/container.py`.
 - Erros de negócio herdam de `AppError` (`core/errors.py`) e viram `{"erro": {"codigo", "mensagem"}}` com o código
   HTTP da classe. Mensagens para o usuário, em português e com a ação a tomar.
-- Esquema do PostgreSQL idempotente em `repositories/database.py`, criado na inicialização.
+- Esquema do PostgreSQL idempotente em `repositories/database.py`, criado na inicialização. Banco vetorial = pgvector
+  no próprio PostgreSQL (imagem `pgvector/pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` no esquema): nada de
+  Qdrant, ChromaDB ou outro serviço para vetores.
 - Coletas (`services/collection_service.py`): uma por vez em cada fonte (trava por fonte; o botão recebe 409 se a
   fonte estiver coletando). Toda coleta grava o registro em `collection_runs` com origem (`agendada`, `botao`,
   `cadastro`), situação, registros e mensagem. Sem dado novo, a situação é `sem_novidade`, com a mensagem "Já está

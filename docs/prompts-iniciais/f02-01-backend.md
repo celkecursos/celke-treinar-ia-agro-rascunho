@@ -406,7 +406,7 @@ from fastapi import APIRouter
 
 from app.api.deps import ContainerDep
 from app.core.errors import AppError
-from app.schemas.status import Health, SchedulerStatus, ServiceStatus, SystemStatus
+from app.schemas.status import DatabaseStatus, Health, SchedulerStatus, ServiceStatus, SystemStatus
 
 router = APIRouter(tags=["Estado"])
 
@@ -419,10 +419,9 @@ def health() -> Health:
 @router.get("/status", response_model=SystemStatus, summary="Estado dos serviços e do agendador")
 def system_status(c: ContainerDep) -> SystemStatus:
     try:
-        c.database.ping()
-        database = ServiceStatus(online=True)
+        database = DatabaseStatus(online=True, vector_version=c.database.ping())
     except AppError as exc:
-        database = ServiceStatus(online=False, error=exc.message)
+        database = DatabaseStatus(online=False, error=exc.message)
     s = c.settings
     return SystemStatus(
         backend=ServiceStatus(online=True),
@@ -1789,6 +1788,9 @@ UNAVAILABLE_MESSAGE = "O banco de dados (PostgreSQL) não está respondendo. Ver
 
 # Idempotente: roda a cada inicialização do backend.
 SCHEMA = """
+-- pgvector: tipo vector e busca por semelhança no próprio PostgreSQL (imagem pgvector/pgvector do compose).
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS municipalities (
     code INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1994,9 +1996,11 @@ class Database:
         with self.connection() as conn:
             conn.execute(SCHEMA)
 
-    def ping(self) -> None:
+    def ping(self) -> str | None:
+        """Confere a conexão e devolve a versão do pgvector instalada no banco (None se a extensão não existir)."""
         with self.connection() as conn:
-            conn.execute("SELECT 1")
+            row = conn.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'").fetchone()
+        return row["extversion"] if row else None
 
     def close(self) -> None:
         self._pool.close()
@@ -2985,6 +2989,11 @@ class ServiceStatus(BaseModel):
     error: str | None = None
 
 
+class DatabaseStatus(ServiceStatus):
+    # versão da extensão pgvector no PostgreSQL; None se o banco estiver fora do ar ou sem a extensão
+    vector_version: str | None = None
+
+
 class SchedulerStatus(BaseModel):
     enabled: bool
     timezone: str
@@ -2996,7 +3005,7 @@ class SystemStatus(BaseModel):
     backend: ServiceStatus
     ollama: OllamaStatus
     gpu: GpuStatus
-    database: ServiceStatus
+    database: DatabaseStatus
     scheduler: SchedulerStatus
 ``````
 
@@ -7739,6 +7748,7 @@ def test_status(client):
     data = client.get("/api/status").json()
     assert data["backend"]["online"] is True
     assert data["database"]["online"] is True
+    assert data["database"]["vector_version"].startswith("0.8.")
     assert data["ollama"]["chat_model"]["tools"] is True
     assert data["scheduler"]["enabled"] is False
     assert client.get("/api/health").json() == {"status": "ok"}

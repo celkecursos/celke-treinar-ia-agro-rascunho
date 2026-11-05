@@ -14,6 +14,9 @@ UNAVAILABLE_MESSAGE = "O banco de dados (PostgreSQL) não está respondendo. Ver
 
 # Idempotente: roda a cada inicialização do backend.
 SCHEMA = """
+-- pgvector: tipo vector e busca por semelhança no próprio PostgreSQL (imagem pgvector/pgvector do compose).
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS municipalities (
     code INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -219,9 +222,11 @@ class Database:
         with self.connection() as conn:
             conn.execute(SCHEMA)
 
-    def ping(self) -> None:
+    def ping(self) -> str | None:
+        """Confere a conexão e devolve a versão do pgvector instalada no banco (None se a extensão não existir)."""
         with self.connection() as conn:
-            conn.execute("SELECT 1")
+            row = conn.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'").fetchone()
+        return row["extversion"] if row else None
 
     def close(self) -> None:
         self._pool.close()

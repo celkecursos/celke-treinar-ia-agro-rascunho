@@ -38,6 +38,7 @@ def test_status(client):
     data = client.get("/api/status").json()
     assert data["backend"]["online"] is True
     assert data["database"]["online"] is True
+    assert data["database"]["vector_version"].startswith("0.8.")
     assert data["ollama"]["chat_model"]["tools"] is True
     assert data["scheduler"]["enabled"] is False
     assert client.get("/api/health").json() == {"status": "ok"}

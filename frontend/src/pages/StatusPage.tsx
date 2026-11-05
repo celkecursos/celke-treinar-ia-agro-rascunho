@@ -161,7 +161,10 @@ export function StatusPage() {
               />
             </li>
             <li>
-              <span>PostgreSQL (dados, coletas e conversas)</span>
+              <span>
+                PostgreSQL{s?.database.vector_version && ` com pgvector ${s.database.vector_version}`} (dados, coletas e
+                conversas)
+              </span>
               <OnlineStatus online={!!s?.database.online} rotulo={s ? undefined : 'Verificando'} />
             </li>
             <li>

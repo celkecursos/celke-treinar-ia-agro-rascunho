@@ -254,9 +254,10 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Municípios, chuva, produção, coletas, descobertas, alertas e conversas.
+  # Municípios, chuva, produção, coletas, descobertas, alertas e conversas. PostgreSQL 18 com a extensão pgvector
+  # (vetores e busca por semelhança no próprio banco, sem um serviço a mais).
   postgres:
-    image: postgres:18.6-alpine
+    image: pgvector/pgvector:0.8.6-pg18-trixie
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-celke_agro}
       POSTGRES_USER: ${POSTGRES_USER:-celke}
@@ -330,7 +331,7 @@ services:
   # Banco descartável dos testes unitários: em memória, sem senha e sem volume.
   postgres-test:
     profiles: [test]
-    image: postgres:18.6-alpine
+    image: pgvector/pgvector:0.8.6-pg18-trixie
     environment:
       POSTGRES_DB: celke_agro_test
       POSTGRES_USER: celke
@@ -508,6 +509,7 @@ docker wait celke-treinar-ia-agro-ollama-init-1    # 0 ao terminar o download; p
 docker compose ps                                   # ollama e postgres healthy, sem porta publicada
 docker compose exec -T ollama ollama list           # o modelo do .env
 docker compose exec -T postgres psql -U celke celke_agro -c "select version()"
+docker compose exec -T postgres psql -U celke celke_agro -c "select default_version from pg_available_extensions where name = 'vector'"
 ```
 
 Rode o download em segundo plano, se a sua ferramenta permitir, e avise o usuário a cada etapa concluída. Se o

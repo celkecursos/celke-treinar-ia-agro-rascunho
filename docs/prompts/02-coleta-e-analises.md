@@ -39,7 +39,8 @@ compartilhados são criados em `core/container.py`. Erros de negócio herdam de 
 - `core/domain.py`: as 27 UFs (código IBGE, sigla, nome); as culturas com a **janela da safra** e os códigos do IBGE:
   soja de outubro do ano anterior a março (PAM 40124; LSPA 39443), milho de janeiro a abril, a 2ª safra (PAM 40122;
   LSPA 39441 e 39442 para 1ª e 2ª safra); nomes e abreviações dos meses; `normalize()` (sem acento, minúsculas).
-- `repositories/database.py`: pool do psycopg e o esquema idempotente: `municipalities` (código IBGE, nome, UF,
+- `repositories/database.py`: pool do psycopg e o esquema idempotente, que começa com `CREATE EXTENSION IF NOT EXISTS
+  vector` (pgvector); `ping()` devolve a versão da extensão. Tabelas: `municipalities` (código IBGE, nome, UF,
   latitude, longitude, `principal`, `status` coletando/pronto/erro, mensagem), `state_references` (municípios de
   referência da chuva da UF, com a área de soja), `weather_daily` (município, dia, mm, `source` arquivo/recente),
   `crop_yearly` (nível municipio/uf/brasil, território, cultura, ano, áreas, produção, rendimento), `crop_estimates`
@@ -103,7 +104,7 @@ com `SCHEDULER_ENABLED=false`.
 
 ## Rotas desta etapa
 
-`/api/health`, `/api/status` (backend, Ollama e se o modelo aceita ferramentas, banco, agendador),
+`/api/health`, `/api/status` (backend, Ollama e se o modelo aceita ferramentas, banco com a versão do pgvector, agendador),
 `/api/municipalities` (listar, cadastrar, ver, excluir), `/api/ibge/states/{UF}/municipalities`,
 `/api/collections` (fontes com o último dado e o agendamento, e as 50 coletas mais recentes),
 `/api/collections/{fonte}`, `/api/analyses/{código}/{cultura}`, `/api/estimates`.

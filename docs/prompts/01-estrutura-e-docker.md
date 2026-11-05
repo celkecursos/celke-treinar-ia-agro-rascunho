@@ -26,9 +26,9 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 | `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; volume `backend-ssh:/data/ssh`; depende de `postgres` e `ollama` saudáveis |
 | `ollama` | `ollama/ollama:0.40.13` | Volume `ollama-models:/root/.ollama`; `OLLAMA_KEEP_ALIVE`; healthcheck `ollama list` |
 | `ollama-init` | `ollama/ollama:0.40.13` | `OLLAMA_HOST=http://ollama:11434`; baixa `CHAT_MODEL` só se `ollama show` falhar; termina; `restart: "no"` |
-| `postgres` | `postgres:18.6-alpine` | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
+| `postgres` | `pgvector/pgvector:0.8.6-pg18-trixie` (PostgreSQL 18 com a extensão pgvector, para vetores no próprio banco) | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
 | `backend-tests` | build `./backend`, target `test`, profile `test` | `POSTGRES_HOST=postgres-test`, `POSTGRES_DB=celke_agro_test`, `SCHEDULER_ENABLED=false`, `INTEGRATION_API_URL=http://backend:8000/api` |
-| `postgres-test` | `postgres:18.6-alpine`, profile `test` | Em memória (`tmpfs: /var/lib/postgresql`), `POSTGRES_HOST_AUTH_METHOD=trust` |
+| `postgres-test` | `pgvector/pgvector:0.8.6-pg18-trixie`, profile `test` | Em memória (`tmpfs: /var/lib/postgresql`), `POSTGRES_HOST_AUTH_METHOD=trust` |
 | `frontend-tests` | build `./frontend`, target `test`, profile `test` | — |
 
 Variáveis do backend (com o padrão):
@@ -87,6 +87,7 @@ docker wait celke-treinar-ia-agro-ollama-init-1        # 0 ao terminar o downloa
 docker compose ps                                       # ollama e postgres healthy, sem porta publicada
 docker compose exec -T ollama ollama list               # o modelo de CHAT_MODEL
 docker compose exec -T postgres psql -U celke celke_agro -c "select version()"
+docker compose exec -T postgres psql -U celke celke_agro -c "select default_version from pg_available_extensions where name = 'vector'"
 ```
 
 Nunca mostre o valor de `POSTGRES_PASSWORD`.

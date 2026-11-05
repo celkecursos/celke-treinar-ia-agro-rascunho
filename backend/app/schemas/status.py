@@ -68,6 +68,11 @@ class ServiceStatus(BaseModel):
     error: str | None = None
 
 
+class DatabaseStatus(ServiceStatus):
+    # versão da extensão pgvector no PostgreSQL; None se o banco estiver fora do ar ou sem a extensão
+    vector_version: str | None = None
+
+
 class SchedulerStatus(BaseModel):
     enabled: bool
     timezone: str
@@ -79,5 +84,5 @@ class SystemStatus(BaseModel):
     backend: ServiceStatus
     ollama: OllamaStatus
     gpu: GpuStatus
-    database: ServiceStatus
+    database: DatabaseStatus
     scheduler: SchedulerStatus

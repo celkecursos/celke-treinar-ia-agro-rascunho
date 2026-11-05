@@ -119,6 +119,12 @@ trechos de PDFs do Celke IA Local. Aqui nenhum dos treinamentos precisa deles: a
 números, o LoRA treina os pesos do próprio Qwen3 com texto, e o chat consulta as tabelas por ferramentas. Por isso a
 página de Status não mostra modelo de embeddings: um modelo a mais só gastaria download e memória.
 
+**Por que PostgreSQL com pgvector:** o banco já vem com a extensão pgvector (imagem `pgvector/pgvector`), criada pelo
+esquema do backend; a página de Status mostra a versão. Ela guarda vetores e faz busca por semelhança no próprio
+PostgreSQL: quando o projeto ganhar RAG, os trechos dos documentos ficam no mesmo banco, com o mesmo backup, filtros
+por cultura e região em SQL, e a busca vetorial junto com a busca por texto exato (nome comercial, ingrediente ativo,
+número de registro) numa consulta só, sem outro serviço para operar.
+
 Além de prever, a IA tem três papéis com os dados:
 
 | Papel | Onde | O que faz |
@@ -272,7 +278,7 @@ Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o 
 Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI :8000) ──► ollama (:11434)  qwen3, com ferramentas
               React + Kole React                 │
                                                  ├──► postgres (:5432)  municípios, chuva, produção, coletas,
-                                                 │                      descobertas, alertas e conversas
+                                                 │                      descobertas, alertas e conversas (pgvector)
                                                  ├──► Open-Meteo        chuva diária e coordenadas (internet)
                                                  └──► IBGE              municípios, PAM e LSPA (internet)
 ```
@@ -283,7 +289,7 @@ Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI 
 | `backend` | API, coletas, agendador, análises, treino da previsão, descobertas, alertas, chat com ferramentas e o túnel SSH da GPU externa | nenhuma |
 | `ollama` | Modelo de linguagem | nenhuma |
 | `ollama-init` | Baixa o modelo se faltar e termina | nenhuma |
-| `postgres` | Todos os dados | nenhuma |
+| `postgres` | Todos os dados (PostgreSQL 18 com a extensão pgvector) | nenhuma |
 | `finetune-tools`, `finetune-train` | Dataset, avaliação e treino do fine-tuning (profile `finetune`, só quando você roda) | nenhuma |
 
 O backend é dividido em `api/` (rotas finas) → `services/` (regras) → `repositories/` (SQL). O ciclo do chat:

@@ -312,6 +312,7 @@ docker wait celke-treinar-ia-agro-ollama-init-1    # 0 ao terminar o download; p
 docker compose ps                                   # ollama e postgres healthy, sem porta publicada
 docker compose exec -T ollama ollama list           # o modelo do .env
 docker compose exec -T postgres psql -U celke celke_agro -c "select version()"
+docker compose exec -T postgres psql -U celke celke_agro -c "select default_version from pg_available_extensions where name = 'vector'"
 ```
 
 Rode o download em segundo plano, se a sua ferramenta permitir, e avise o usuário a cada etapa concluída. Se o

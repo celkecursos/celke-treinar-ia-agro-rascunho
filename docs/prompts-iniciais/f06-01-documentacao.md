@@ -150,6 +150,12 @@ trechos de PDFs do Celke IA Local. Aqui nenhum dos treinamentos precisa deles: a
 números, o LoRA treina os pesos do próprio Qwen3 com texto, e o chat consulta as tabelas por ferramentas. Por isso a
 página de Status não mostra modelo de embeddings: um modelo a mais só gastaria download e memória.
 
+**Por que PostgreSQL com pgvector:** o banco já vem com a extensão pgvector (imagem `pgvector/pgvector`), criada pelo
+esquema do backend; a página de Status mostra a versão. Ela guarda vetores e faz busca por semelhança no próprio
+PostgreSQL: quando o projeto ganhar RAG, os trechos dos documentos ficam no mesmo banco, com o mesmo backup, filtros
+por cultura e região em SQL, e a busca vetorial junto com a busca por texto exato (nome comercial, ingrediente ativo,
+número de registro) numa consulta só, sem outro serviço para operar.
+
 Além de prever, a IA tem três papéis com os dados:
 
 | Papel | Onde | O que faz |
@@ -303,7 +309,7 @@ Uma RTX 4090 (24 GB) treina o 8B com folga; com 48 GB (L40S) dá para treinar o 
 Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI :8000) ──► ollama (:11434)  qwen3, com ferramentas
               React + Kole React                 │
                                                  ├──► postgres (:5432)  municípios, chuva, produção, coletas,
-                                                 │                      descobertas, alertas e conversas
+                                                 │                      descobertas, alertas e conversas (pgvector)
                                                  ├──► Open-Meteo        chuva diária e coordenadas (internet)
                                                  └──► IBGE              municípios, PAM e LSPA (internet)
 ```
@@ -314,7 +320,7 @@ Navegador ──► frontend (nginx :8091) ──/api──► backend (FastAPI 
 | `backend` | API, coletas, agendador, análises, treino da previsão, descobertas, alertas, chat com ferramentas e o túnel SSH da GPU externa | nenhuma |
 | `ollama` | Modelo de linguagem | nenhuma |
 | `ollama-init` | Baixa o modelo se faltar e termina | nenhuma |
-| `postgres` | Todos os dados | nenhuma |
+| `postgres` | Todos os dados (PostgreSQL 18 com a extensão pgvector) | nenhuma |
 | `finetune-tools`, `finetune-train` | Dataset, avaliação e treino do fine-tuning (profile `finetune`, só quando você roda) | nenhuma |
 
 O backend é dividido em `api/` (rotas finas) → `services/` (regras) → `repositories/` (SQL). O ciclo do chat:
@@ -539,7 +545,7 @@ comandos e as variáveis de ambiente.
 
 | Pasta | Projeto | Stack |
 |---|---|---|
-| `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL (psycopg 3) |
+| `backend/` | API, coletas, agendador, análises, previsão treinada, descobertas, alertas, chat com ferramentas e dataset/avaliação do fine-tuning | Python 3.13, FastAPI, Pydantic, httpx, Ollama, PostgreSQL 18 com pgvector (psycopg 3) |
 | `finetuning/` | Treino LoRA na GPU e criação do modelo no Ollama | Python 3.12, Unsloth (versões fixas), Docker com GPU NVIDIA |
 | `frontend/` | Análises, Previsão, Chat, Descobertas, Alertas, Municípios, Status e Modelo de IA | React 19, TypeScript, Vite, React Router, `@celke/kole-react` |
 | raiz | Docker Compose, scripts de inicialização | Docker Compose |
@@ -592,7 +598,6 @@ comandos e as variáveis de ambiente.
   `app_settings`). O fine-tuning remoto é o `finetuning/treinar_remoto.sh` (sem argumento, usa o servidor do painel).
 - O backend só acessa os endereços de `ALLOWED_HOSTS` em `services/public_data.py` e, por SSH, o servidor da GPU
   externa cadastrado no painel.
-- Não há modelo de embeddings: nada no projeto faz busca por semelhança de texto. Não acrescente um sem um uso real.
 - Nas fontes públicas, o backend usa HTTPS e só envia parâmetros de consulta (nomes de municípios, coordenadas,
   datas, códigos do IBGE).
 
@@ -602,7 +607,9 @@ comandos e as variáveis de ambiente.
   `%s`). Os objetos compartilhados são criados em `core/container.py`.
 - Erros de negócio herdam de `AppError` (`core/errors.py`) e viram `{"erro": {"codigo", "mensagem"}}` com o código
   HTTP da classe. Mensagens para o usuário, em português e com a ação a tomar.
-- Esquema do PostgreSQL idempotente em `repositories/database.py`, criado na inicialização.
+- Esquema do PostgreSQL idempotente em `repositories/database.py`, criado na inicialização. Banco vetorial = pgvector
+  no próprio PostgreSQL (imagem `pgvector/pgvector`, `CREATE EXTENSION IF NOT EXISTS vector` no esquema): nada de
+  Qdrant, ChromaDB ou outro serviço para vetores.
 - Coletas (`services/collection_service.py`): uma por vez em cada fonte (trava por fonte; o botão recebe 409 se a
   fonte estiver coletando). Toda coleta grava o registro em `collection_runs` com origem (`agendada`, `botao`,
   `cadastro`), situação, registros e mensagem. Sem dado novo, a situação é `sem_novidade`, com a mensagem "Já está
@@ -964,6 +971,7 @@ docker wait celke-treinar-ia-agro-ollama-init-1    # 0 ao terminar o download; p
 docker compose ps                                   # ollama e postgres healthy, sem porta publicada
 docker compose exec -T ollama ollama list           # o modelo do .env
 docker compose exec -T postgres psql -U celke celke_agro -c "select version()"
+docker compose exec -T postgres psql -U celke celke_agro -c "select default_version from pg_available_extensions where name = 'vector'"
 ```
 
 Rode o download em segundo plano, se a sua ferramenta permitir, e avise o usuário a cada etapa concluída. Se o
@@ -1543,9 +1551,9 @@ Backend e frontend chegam nas próximas etapas: crie as pastas vazias `backend` 
 | `backend` | build `./backend`, target `runtime` | Sem porta; todas as variáveis da tabela abaixo com padrão; volume `backend-ssh:/data/ssh`; depende de `postgres` e `ollama` saudáveis |
 | `ollama` | `ollama/ollama:0.40.13` | Volume `ollama-models:/root/.ollama`; `OLLAMA_KEEP_ALIVE`; healthcheck `ollama list` |
 | `ollama-init` | `ollama/ollama:0.40.13` | `OLLAMA_HOST=http://ollama:11434`; baixa `CHAT_MODEL` só se `ollama show` falhar; termina; `restart: "no"` |
-| `postgres` | `postgres:18.6-alpine` | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
+| `postgres` | `pgvector/pgvector:0.8.6-pg18-trixie` (PostgreSQL 18 com a extensão pgvector, para vetores no próprio banco) | Volume `postgres-data:/var/lib/postgresql` (a partir do 18 o volume é esse caminho); senha de `POSTGRES_PASSWORD` **sem padrão**; healthcheck `pg_isready` |
 | `backend-tests` | build `./backend`, target `test`, profile `test` | `POSTGRES_HOST=postgres-test`, `POSTGRES_DB=celke_agro_test`, `SCHEDULER_ENABLED=false`, `INTEGRATION_API_URL=http://backend:8000/api` |
-| `postgres-test` | `postgres:18.6-alpine`, profile `test` | Em memória (`tmpfs: /var/lib/postgresql`), `POSTGRES_HOST_AUTH_METHOD=trust` |
+| `postgres-test` | `pgvector/pgvector:0.8.6-pg18-trixie`, profile `test` | Em memória (`tmpfs: /var/lib/postgresql`), `POSTGRES_HOST_AUTH_METHOD=trust` |
 | `frontend-tests` | build `./frontend`, target `test`, profile `test` | — |
 
 Variáveis do backend (com o padrão):
@@ -1604,6 +1612,7 @@ docker wait celke-treinar-ia-agro-ollama-init-1        # 0 ao terminar o downloa
 docker compose ps                                       # ollama e postgres healthy, sem porta publicada
 docker compose exec -T ollama ollama list               # o modelo de CHAT_MODEL
 docker compose exec -T postgres psql -U celke celke_agro -c "select version()"
+docker compose exec -T postgres psql -U celke celke_agro -c "select default_version from pg_available_extensions where name = 'vector'"
 ```
 
 Nunca mostre o valor de `POSTGRES_PASSWORD`.
@@ -1653,7 +1662,8 @@ compartilhados são criados em `core/container.py`. Erros de negócio herdam de 
 - `core/domain.py`: as 27 UFs (código IBGE, sigla, nome); as culturas com a **janela da safra** e os códigos do IBGE:
   soja de outubro do ano anterior a março (PAM 40124; LSPA 39443), milho de janeiro a abril, a 2ª safra (PAM 40122;
   LSPA 39441 e 39442 para 1ª e 2ª safra); nomes e abreviações dos meses; `normalize()` (sem acento, minúsculas).
-- `repositories/database.py`: pool do psycopg e o esquema idempotente: `municipalities` (código IBGE, nome, UF,
+- `repositories/database.py`: pool do psycopg e o esquema idempotente, que começa com `CREATE EXTENSION IF NOT EXISTS
+  vector` (pgvector); `ping()` devolve a versão da extensão. Tabelas: `municipalities` (código IBGE, nome, UF,
   latitude, longitude, `principal`, `status` coletando/pronto/erro, mensagem), `state_references` (municípios de
   referência da chuva da UF, com a área de soja), `weather_daily` (município, dia, mm, `source` arquivo/recente),
   `crop_yearly` (nível municipio/uf/brasil, território, cultura, ano, áreas, produção, rendimento), `crop_estimates`
@@ -1717,7 +1727,7 @@ com `SCHEDULER_ENABLED=false`.
 
 ## Rotas desta etapa
 
-`/api/health`, `/api/status` (backend, Ollama e se o modelo aceita ferramentas, banco, agendador),
+`/api/health`, `/api/status` (backend, Ollama e se o modelo aceita ferramentas, banco com a versão do pgvector, agendador),
 `/api/municipalities` (listar, cadastrar, ver, excluir), `/api/ibge/states/{UF}/municipalities`,
 `/api/collections` (fontes com o último dado e o agendamento, e as 50 coletas mais recentes),
 `/api/collections/{fonte}`, `/api/analyses/{código}/{cultura}`, `/api/estimates`.
@@ -2043,7 +2053,7 @@ segurança repetidos em cada `location`). Gere o `package-lock.json` no Docker (
 | **Descobertas** (`/descobertas`) | Resumo da IA, modelo e quantas relações foram testadas; próximas perguntas com botão para perguntar no chat; cada descoberta com o fato calculado, r/q/n, interpretação, hipótese e o gráfico; aviso quando a IA não conseguiu interpretar; botão **Gerar de novo** |
 | **Alertas** (`/alertas`) | Ativos ou todos; cada alerta com a mensagem, a explicação da IA, chuva × média, gráfico da chuva acumulada e a tabela das safras parecidas |
 | **Municípios** (`/municipios`) | Cadastro com `CampoUf` e `CampoCidade` (lista do IBGE pelo backend); tabela com situação e a mensagem do passo atual, período da chuva, último ano da produção, ações (ver análises, excluir); botão **Coletar chuva agora**; atualização a cada 3 s |
-| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; card **Serviços** com o botão **Configurar** fixo à direita do título (`ferramentas` do `Card`, não `acoes`, que só aparecem no hover) (abre `/modelo-ia`) e a lista (backend, Ollama em uso, modelo com ferramentas, PostgreSQL, agendador) |
+| **Status e coletas** (`/status`) | Um card por fonte com o último dado, o agendamento, a última coleta e o botão **Buscar agora** (desabilitado enquanto coleta); registro das coletas com quando, fonte, origem, situação, registros e mensagem; card **Serviços** com o botão **Configurar** fixo à direita do título (`ferramentas` do `Card`, não `acoes`, que só aparecem no hover) (abre `/modelo-ia`) e a lista (backend, Ollama em uso, modelo com ferramentas, PostgreSQL com a versão do pgvector, agendador) |
 | **Modelo de IA** (`/modelo-ia`, fora do menu; aberta pelo **Configurar** do Status) | Cabeçalho com o botão de volta para o Status. Card **Modelo de IA** (`components/ModelCard.tsx`): em uso no subtítulo; `Escolha` "Onde o modelo roda" (Neste computador ou GPU externa, desabilitada sem configuração, com a dica do README); `CampoSelect` com os modelos instalados naquele Ollama (nome, parâmetros e GB) e a dica de memória por tamanho; **Usar este modelo**; `CampoTexto` e **Baixar** com `Progresso` do download (status a cada 2 s enquanto baixa ou conecta) e `Alerta` de concluído ou erro. Card **GPU externa** (`components/GpuCard.tsx`): `Status` do túnel; endereço, `CampoInteiro` da porta SSH e usuário com **Cadastrar e conectar**; `Alerta` com a mensagem do túnel; **Aceitar a chave nova do servidor** quando ela mudou; a chave pública em `<code>` com **Copiar** e a impressão digital da chave do servidor; `CampoSenha` e **Instalar a chave** enquanto não conecta; **Conectar** ou **Desconectar** e **Remover servidor** (com `useConfirmacao`, lembrando de desligar a instância no provedor). |
 
 Estilos próprios só em `src/styles.css`, com as variáveis do tema do Kole (`--surface`, `--t2`, `--t3`, `--border`,
