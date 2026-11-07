@@ -207,7 +207,7 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
   |---|---|
   | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
   | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
-  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+  | Qualquer outro caso | **GPU externa** (`sh finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
 
   O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.
@@ -404,7 +404,7 @@ docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine npm i
 
 ```bash
 docker compose --profile test run --rm --build frontend-tests
-./scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1
+sh scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1
 docker compose ps                                           # todos healthy; só o frontend com porta
 curl -s http://localhost:<porta>/api/status                 # backend, ollama e banco online; modelo com ferramentas
 curl -s -o /dev/null -w "%{{http_code}}\\n" http://localhost:<porta>/previsao   # 200
@@ -463,7 +463,7 @@ Depois, deixe os scripts executáveis: `chmod +x finetuning/criar_modelo.sh fine
    docker compose exec ollama sh /finetuning/criar_modelo.sh <modelo de docs/configuracao.md> celke-agro
    docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
    ```
-   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com ./finetuning/treinar_remoto.sh
+   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com sh finetuning/treinar_remoto.sh
    usuario@ip (README, GPU externa)" no relatório e siga.
 
 Mostre ao usuário os percentuais de acerto de antes e de depois.
@@ -482,7 +482,7 @@ git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 > novas, contra <antes>% do modelo original. Para usar no chat, escolha `celke-agro` na página Modelo de IA
 > (Status e coletas > Configurar)."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
 > treinar, alugue uma GPU por hora (por exemplo, na Hostinger), cadastre na página Modelo de IA (GPU externa) e rode
-> `./finetuning/treinar_remoto.sh`:
+> `sh finetuning/treinar_remoto.sh`:
 > veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
@@ -505,7 +505,7 @@ Não apague nada além do que você mesmo criar neste teste.
 
 ## Verificação
 
-1. Duas vezes, para confirmar que a segunda não baixa nada: `./scripts/iniciar.sh` ou
+1. Duas vezes, para confirmar que a segunda não baixa nada: `sh scripts/iniciar.sh` ou
    `powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1`. Termina com "Pronto! Abra http://localhost:<porta>".
 2. `docker compose --profile test run --rm --build backend-tests pytest -m integration -v` (1 passou) e
    `docker compose --profile test rm -fs postgres-test`.

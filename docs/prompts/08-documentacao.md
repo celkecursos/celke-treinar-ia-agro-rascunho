@@ -11,9 +11,13 @@ Na ordem:
 
 1. Título e um parágrafo: IA local que coleta chuva (Open-Meteo) e produção de soja e milho (IBGE) e **treina dois
    modelos** com esses dados, além de responder, descobrir e avisar.
-2. **Como executar (quem baixou do GitHub)**: o que precisa (Docker, Git, internet, RAM, disco), `git clone`,
-   `./scripts/iniciar.sh` ou o `iniciar.ps1`, o que esperar da primeira vez (download do modelo), GPU com
-   `COMPOSE_FILE`, o roteiro no navegador página a página e os comandos para parar, voltar e apagar.
+2. **Como executar**: o que precisa (Docker, internet, RAM, disco; Git só para `git clone`); como baixar em duas
+   opções, **A: arquivo ZIP** (extrair e entrar na pasta com o `compose.yaml`, sem Git) e **B: GitHub com Git**
+   (`git clone`); depois, nas duas, `sh scripts/iniciar.sh` (o `sh` funciona mesmo sem permissão de execução, como
+   depois de extrair um ZIP) ou o `iniciar.ps1`; o que esperar da primeira vez (download do modelo), GPU com
+   `COMPOSE_FILE`, o roteiro no navegador página a página, os comandos para parar, voltar e apagar; e como atualizar
+   para uma versão nova, também nas duas opções (ZIP: extrair em outra pasta e copiar o `.env` antigo; Git:
+   `git pull`), lembrando que os dados ficam nos volumes do Docker.
 3. **Os dois treinamentos**: tabela previsão da safra × fine-tuning (o que aprende, dados, como treina, como mede,
    quando treina, onde aparece), um exemplo real com números, o que **não** é treinado (números ficam no banco e nas
    ferramentas) e os três papéis da IA (responder, descobrir, avisar).

@@ -8,7 +8,7 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 
 ## Índice
 
-- [Como executar (quem baixou do GitHub)](#como-executar-quem-baixou-do-github)
+- [Como executar](#como-executar)
 - [Os dois treinamentos](#os-dois-treinamentos)
 - [Fine-tuning do modelo de linguagem (GPU)](#fine-tuning-do-modelo-de-linguagem-gpu)
 - [GPU externa (Hostinger e similares)](#gpu-externa-hostinger-e-similares)
@@ -26,31 +26,50 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Prompts para recriar o projeto](#prompts-para-recriar-o-projeto)
 
-## Como executar (quem baixou do GitHub)
+## Como executar
 
 ### 1. O que você precisa
 
 | O quê | Observação |
 |---|---|
 | Docker Desktop (Windows, macOS) ou Docker Engine com o plugin Compose (Linux) | No Windows, com WSL 2 |
-| Git | Para baixar o projeto |
 | Internet | Na primeira vez: imagens Docker, pacotes e o modelo (de 5 a 9 GB) |
 | 16 GB de RAM | Com o modelo padrão `qwen3:8b` rodando na CPU. Com GPU NVIDIA, fica bem mais rápido |
 | 20 GB livres em disco | Imagens, modelo e dados |
 
-Não instale o Ollama, o Python nem o Node.js: tudo roda dentro do Docker.
+Não instale o Ollama, o Python nem o Node.js: tudo roda dentro do Docker. O Git só é preciso para baixar com
+`git clone`.
 
 ### 2. Baixar e subir
+
+Escolha a forma como você baixou o projeto.
+
+**Opção A: baixou o arquivo ZIP**
+
+1. Extraia o ZIP numa pasta de sua escolha.
+2. Abra um terminal dentro da pasta extraída, a que tem o arquivo `compose.yaml`. Se a extração criar uma pasta dentro
+   da outra, entre na mais interna:
+
+   ```bash
+   cd caminho/para/celke-treinar-ia-agro
+   ```
+
+Não precisa do Git.
+
+**Opção B: baixar do GitHub com Git**
 
 ```bash
 git clone https://github.com/celkecursos/celke-treinar-ia-agro-rascunho.git celke-treinar-ia-agro
 cd celke-treinar-ia-agro
 ```
 
+**Depois, nas duas opções:** no Windows, abra o Docker Desktop e espere ele terminar de iniciar. Então rode o script,
+na pasta do projeto.
+
 Linux, macOS ou Git Bash no Windows:
 
 ```bash
-./scripts/iniciar.sh
+sh scripts/iniciar.sh
 ```
 
 Windows (PowerShell):
@@ -93,6 +112,22 @@ docker compose stop                 # para, sem perder nada
 docker compose start                # volta
 docker compose down -v              # apaga tudo: dados, conversas e o modelo baixado
 ```
+
+### 5. Atualizar para uma versão nova
+
+Os dados não ficam na pasta do projeto, e sim nos volumes do Docker: atualizar não apaga municípios, coletas,
+treinos, conversas nem o modelo de IA já baixado.
+
+**Opção A: baixou o arquivo ZIP**
+
+1. Baixe e extraia a versão nova em outra pasta.
+2. Copie o arquivo `.env` da pasta antiga para a pasta nova. Sem ele, o script cria uma senha nova, que não abre o
+   banco existente.
+3. Na pasta nova, rode o script do passo 2. Ele reconstrói as imagens e usa os mesmos dados.
+
+**Opção B: baixou do GitHub com Git**
+
+Na pasta do projeto, rode `git pull` e depois o script do passo 2. O `.env` continua na pasta.
 
 ## Os dois treinamentos
 
@@ -228,8 +263,8 @@ Com o dataset gerado (`docker compose --profile finetune run --rm finetune-tools
 (Linux, macOS ou **Git Bash** no Windows):
 
 ```bash
-./finetuning/treinar_remoto.sh                 # o servidor e a chave cadastrados em Modelo de IA > GPU externa
-./finetuning/treinar_remoto.sh root@<ip> 22    # ou outro servidor, com a sua chave (GPU_SSH_KEY, padrão ~/.ssh/id_ed25519)
+sh finetuning/treinar_remoto.sh                 # o servidor e a chave cadastrados em Modelo de IA > GPU externa
+sh finetuning/treinar_remoto.sh root@<ip> 22    # ou outro servidor, com a sua chave (GPU_SSH_KEY, padrão ~/.ssh/id_ed25519)
 ```
 
 Sem argumentos, o script usa o servidor do card **GPU externa** e a chave que ele já aceita (copiada do volume do

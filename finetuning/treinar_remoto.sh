@@ -2,8 +2,8 @@
 # Fine-tuning LoRA numa GPU externa (por exemplo, uma instância de GPU da Hostinger) por SSH: envia o dataset, treina
 # no servidor e traz o modelo treinado para finetuning/output/. Na raiz do projeto (Linux, macOS ou Git Bash no
 # Windows):
-#   ./finetuning/treinar_remoto.sh                               # o servidor e a chave cadastrados na página Modelo de IA
-#   ./finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]   # outro servidor, com a sua chave (GPU_SSH_KEY)
+#   sh finetuning/treinar_remoto.sh                               # o servidor e a chave cadastrados na página Modelo de IA
+#   sh finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]   # outro servidor, com a sua chave (GPU_SSH_KEY)
 # Antes, gere o dataset: docker compose --profile finetune run --rm finetune-tools exportar
 # Com CRIAR_NO_SERVIDOR=1, cria também o modelo celke-agro no Ollama do servidor (para o chat na GPU externa).
 # A instância é cobrada por hora: apague-a no painel quando terminar.
@@ -24,7 +24,7 @@ print(f\"{g['user']}@{g['host']} {g['port']}\" if g['configured'] else '')
 " 2>/dev/null || true)
   if [ -z "$servidor" ]; then
     echo "Nenhuma GPU externa cadastrada. Cadastre em Status e coletas > Configurar > GPU externa, ou rode:"
-    echo "  ./finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]"
+    echo "  sh finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]"
     exit 1
   fi
   destino="${servidor% *}"
