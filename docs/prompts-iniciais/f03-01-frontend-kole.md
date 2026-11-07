@@ -3397,7 +3397,7 @@ docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine npm i
 
 ```bash
 docker compose --profile test run --rm --build frontend-tests
-./scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\iniciar.ps1
+sh scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\iniciar.ps1
 docker compose ps                                           # todos healthy; só o frontend com porta
 curl -s http://localhost:<porta>/api/status                 # backend, ollama e banco online; modelo com ferramentas
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:<porta>/previsao   # 200

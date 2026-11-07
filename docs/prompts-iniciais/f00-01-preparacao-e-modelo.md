@@ -122,7 +122,7 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
   |---|---|
   | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
   | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
-  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+  | Qualquer outro caso | **GPU externa** (`sh finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
 
   O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.

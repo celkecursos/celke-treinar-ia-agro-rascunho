@@ -17,7 +17,7 @@ Não apague nada além do que você mesmo criar neste teste.
 
 ## Verificação
 
-1. Duas vezes, para confirmar que a segunda não baixa nada: `./scripts/iniciar.sh` ou
+1. Duas vezes, para confirmar que a segunda não baixa nada: `sh scripts/iniciar.sh` ou
    `powershell -ExecutionPolicy Bypass -File scripts\iniciar.ps1`. Termina com "Pronto! Abra http://localhost:<porta>".
 2. `docker compose --profile test run --rm --build backend-tests pytest -m integration -v` (1 passou) e
    `docker compose --profile test rm -fs postgres-test`.

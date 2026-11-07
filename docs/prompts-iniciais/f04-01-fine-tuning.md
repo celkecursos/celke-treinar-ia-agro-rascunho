@@ -222,8 +222,8 @@ if __name__ == "__main__":
 # Fine-tuning LoRA numa GPU externa (por exemplo, uma instância de GPU da Hostinger) por SSH: envia o dataset, treina
 # no servidor e traz o modelo treinado para finetuning/output/. Na raiz do projeto (Linux, macOS ou Git Bash no
 # Windows):
-#   ./finetuning/treinar_remoto.sh                               # o servidor e a chave cadastrados na página Modelo de IA
-#   ./finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]   # outro servidor, com a sua chave (GPU_SSH_KEY)
+#   sh finetuning/treinar_remoto.sh                               # o servidor e a chave cadastrados na página Modelo de IA
+#   sh finetuning/treinar_remoto.sh root@<ip-do-servidor> [porta-ssh]   # outro servidor, com a sua chave (GPU_SSH_KEY)
 # Antes, gere o dataset: docker compose --profile finetune run --rm finetune-tools exportar
 # Com CRIAR_NO_SERVIDOR=1, cria também o modelo celke-agro no Ollama do servidor (para o chat na GPU externa).
 # A instância é cobrada por hora: apague-a no painel quando terminar.
@@ -244,7 +244,7 @@ print(f\"{g['user']}@{g['host']} {g['port']}\" if g['configured'] else '')
 " 2>/dev/null || true)
   if [ -z "$servidor" ]; then
     echo "Nenhuma GPU externa cadastrada. Cadastre em Status e coletas > Configurar > GPU externa, ou rode:"
-    echo "  ./finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]"
+    echo "  sh finetuning/treinar_remoto.sh usuario@ip-do-servidor [porta-ssh]"
     exit 1
   fi
   destino="${servidor% *}"
@@ -343,7 +343,7 @@ echo "Lembre de apagar a instância no painel da Hostinger: ela é cobrada por h
    docker compose exec ollama sh /finetuning/criar_modelo.sh <modelo de docs/configuracao.md> celke-agro
    docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
    ```
-   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com ./finetuning/treinar_remoto.sh
+   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com sh finetuning/treinar_remoto.sh
    usuario@ip (README, GPU externa)" no relatório e siga.
 
 Mostre ao usuário os percentuais de acerto de antes e de depois.
@@ -362,5 +362,5 @@ git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 > novas, contra <antes>% do modelo original. Para usar no chat, escolha `celke-agro` na página Modelo de IA
 > (Status e coletas > Configurar)."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
 > treinar, alugue uma GPU por hora (por exemplo, na Hostinger), cadastre na página Modelo de IA (GPU externa) e rode
-> `./finetuning/treinar_remoto.sh`:
+> `sh finetuning/treinar_remoto.sh`:
 > veja 'GPU externa' no README."> Continue sem fazer nada.

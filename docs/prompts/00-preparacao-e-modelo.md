@@ -43,7 +43,7 @@ Se o recomendado for `qwen3:4b` ou menor, avise que o chat pode rodar depois num
 |---|---|
 | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
 | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (`FINETUNE_BASE_MODEL` no `.env`) |
-| Qualquer outro caso | GPU externa (`./finetuning/treinar_remoto.sh`) ou pendente |
+| Qualquer outro caso | GPU externa (`sh finetuning/treinar_remoto.sh`) ou pendente |
 
 O modelo de previsão da safra não precisa de GPU: treina aqui, em segundos.
 

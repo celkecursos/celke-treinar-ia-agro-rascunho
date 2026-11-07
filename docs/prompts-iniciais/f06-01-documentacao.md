@@ -39,7 +39,7 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 
 ## Índice
 
-- [Como executar (quem baixou do GitHub)](#como-executar-quem-baixou-do-github)
+- [Como executar](#como-executar)
 - [Os dois treinamentos](#os-dois-treinamentos)
 - [Fine-tuning do modelo de linguagem (GPU)](#fine-tuning-do-modelo-de-linguagem-gpu)
 - [GPU externa (Hostinger e similares)](#gpu-externa-hostinger-e-similares)
@@ -57,31 +57,50 @@ foge do normal. Tudo roda no Docker: não é preciso instalar Python nem Node.js
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Prompts para recriar o projeto](#prompts-para-recriar-o-projeto)
 
-## Como executar (quem baixou do GitHub)
+## Como executar
 
 ### 1. O que você precisa
 
 | O quê | Observação |
 |---|---|
 | Docker Desktop (Windows, macOS) ou Docker Engine com o plugin Compose (Linux) | No Windows, com WSL 2 |
-| Git | Para baixar o projeto |
 | Internet | Na primeira vez: imagens Docker, pacotes e o modelo (de 5 a 9 GB) |
 | 16 GB de RAM | Com o modelo padrão `qwen3:8b` rodando na CPU. Com GPU NVIDIA, fica bem mais rápido |
 | 20 GB livres em disco | Imagens, modelo e dados |
 
-Não instale o Ollama, o Python nem o Node.js: tudo roda dentro do Docker.
+Não instale o Ollama, o Python nem o Node.js: tudo roda dentro do Docker. O Git só é preciso para baixar com
+`git clone`.
 
 ### 2. Baixar e subir
+
+Escolha a forma como você baixou o projeto.
+
+**Opção A: baixou o arquivo ZIP**
+
+1. Extraia o ZIP numa pasta de sua escolha.
+2. Abra um terminal dentro da pasta extraída, a que tem o arquivo `compose.yaml`. Se a extração criar uma pasta dentro
+   da outra, entre na mais interna:
+
+   ```bash
+   cd caminho/para/celke-treinar-ia-agro
+   ```
+
+Não precisa do Git.
+
+**Opção B: baixar do GitHub com Git**
 
 ```bash
 git clone <url-do-repositório> celke-treinar-ia-agro
 cd celke-treinar-ia-agro
 ```
 
+**Depois, nas duas opções:** no Windows, abra o Docker Desktop e espere ele terminar de iniciar. Então rode o script,
+na pasta do projeto.
+
 Linux, macOS ou Git Bash no Windows:
 
 ```bash
-./scripts/iniciar.sh
+sh scripts/iniciar.sh
 ```
 
 Windows (PowerShell):
@@ -124,6 +143,22 @@ docker compose stop                 # para, sem perder nada
 docker compose start                # volta
 docker compose down -v              # apaga tudo: dados, conversas e o modelo baixado
 ```
+
+### 5. Atualizar para uma versão nova
+
+Os dados não ficam na pasta do projeto, e sim nos volumes do Docker: atualizar não apaga municípios, coletas,
+treinos, conversas nem o modelo de IA já baixado.
+
+**Opção A: baixou o arquivo ZIP**
+
+1. Baixe e extraia a versão nova em outra pasta.
+2. Copie o arquivo `.env` da pasta antiga para a pasta nova. Sem ele, o script cria uma senha nova, que não abre o
+   banco existente.
+3. Na pasta nova, rode o script do passo 2. Ele reconstrói as imagens e usa os mesmos dados.
+
+**Opção B: baixou do GitHub com Git**
+
+Na pasta do projeto, rode `git pull` e depois o script do passo 2. O `.env` continua na pasta.
 
 ## Os dois treinamentos
 
@@ -259,8 +294,8 @@ Com o dataset gerado (`docker compose --profile finetune run --rm finetune-tools
 (Linux, macOS ou **Git Bash** no Windows):
 
 ```bash
-./finetuning/treinar_remoto.sh                 # o servidor e a chave cadastrados em Modelo de IA > GPU externa
-./finetuning/treinar_remoto.sh root@<ip> 22    # ou outro servidor, com a sua chave (GPU_SSH_KEY, padrão ~/.ssh/id_ed25519)
+sh finetuning/treinar_remoto.sh                 # o servidor e a chave cadastrados em Modelo de IA > GPU externa
+sh finetuning/treinar_remoto.sh root@<ip> 22    # ou outro servidor, com a sua chave (GPU_SSH_KEY, padrão ~/.ssh/id_ed25519)
 ```
 
 Sem argumentos, o script usa o servidor do card **GPU externa** e a chave que ele já aceita (copiada do volume do
@@ -872,7 +907,7 @@ esta orientação, sem alterar nada por conta própria: "Para dar mais memória 
   |---|---|
   | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
   | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (o modelo treinado parte do `qwen3:4b`) |
-  | Qualquer outro caso | **GPU externa** (`./finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
+  | Qualquer outro caso | **GPU externa** (`sh finetuning/treinar_remoto.sh`, veja "GPU externa" no README) ou pular: a etapa 4 prepara o dataset e mede o modelo atual, e o treino fica como pendência |
 
   O treino da previsão da safra não precisa de GPU: roda sempre aqui, em segundos.
 - **Porta:** `8091`. Se estiver ocupada, use a primeira livre de `8092` a `8099`.
@@ -1069,7 +1104,7 @@ docker run --rm -v "<pasta frontend absoluta>:/app" -w /app node:24-alpine npm i
 
 ```bash
 docker compose --profile test run --rm --build frontend-tests
-./scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1
+sh scripts/iniciar.sh                                        # no Windows: powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1
 docker compose ps                                           # todos healthy; só o frontend com porta
 curl -s http://localhost:<porta>/api/status                 # backend, ollama e banco online; modelo com ferramentas
 curl -s -o /dev/null -w "%{{http_code}}\\n" http://localhost:<porta>/previsao   # 200
@@ -1128,7 +1163,7 @@ Depois, deixe os scripts executáveis: `chmod +x finetuning/criar_modelo.sh fine
    docker compose exec ollama sh /finetuning/criar_modelo.sh <modelo de docs/configuracao.md> celke-agro
    docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
    ```
-   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com ./finetuning/treinar_remoto.sh
+   Sem GPU local, registre "treino LoRA pendente: rodar numa GPU externa com sh finetuning/treinar_remoto.sh
    usuario@ip (README, GPU externa)" no relatório e siga.
 
 Mostre ao usuário os percentuais de acerto de antes e de depois.
@@ -1147,7 +1182,7 @@ git commit -m "feat: adiciona o fine-tuning LoRA do modelo de linguagem"
 > novas, contra <antes>% do modelo original. Para usar no chat, escolha `celke-agro` na página Modelo de IA
 > (Status e coletas > Configurar)."> <Sem GPU: "O modelo atual acertou <antes>% das perguntas novas. Para
 > treinar, alugue uma GPU por hora (por exemplo, na Hostinger), cadastre na página Modelo de IA (GPU externa) e rode
-> `./finetuning/treinar_remoto.sh`:
+> `sh finetuning/treinar_remoto.sh`:
 > veja 'GPU externa' no README."> Continue sem fazer nada.
 """
 
@@ -1170,7 +1205,7 @@ Não apague nada além do que você mesmo criar neste teste.
 
 ## Verificação
 
-1. Duas vezes, para confirmar que a segunda não baixa nada: `./scripts/iniciar.sh` ou
+1. Duas vezes, para confirmar que a segunda não baixa nada: `sh scripts/iniciar.sh` ou
    `powershell -ExecutionPolicy Bypass -File scripts\\iniciar.ps1`. Termina com "Pronto! Abra http://localhost:<porta>".
 2. `docker compose --profile test run --rm --build backend-tests pytest -m integration -v` (1 passou) e
    `docker compose --profile test rm -fs postgres-test`.
@@ -1511,7 +1546,7 @@ Se o recomendado for `qwen3:4b` ou menor, avise que o chat pode rodar depois num
 |---|---|
 | GPU NVIDIA com 12 GB ou mais | Neste computador, base `unsloth/Qwen3-8B` |
 | GPU NVIDIA com 8 GB ou mais | Neste computador, base `unsloth/Qwen3-4B` (`FINETUNE_BASE_MODEL` no `.env`) |
-| Qualquer outro caso | GPU externa (`./finetuning/treinar_remoto.sh`) ou pendente |
+| Qualquer outro caso | GPU externa (`sh finetuning/treinar_remoto.sh`) ou pendente |
 
 O modelo de previsão da safra não precisa de GPU: treina aqui, em segundos.
 
@@ -2168,7 +2203,7 @@ Linha de comando no container do backend: `python -m app.finetune exportar --sai
 - `criar_modelo.sh` (roda no container do Ollama): pega o `Modelfile` do modelo base (`ollama show --modelfile`),
   troca o `FROM` pelo GGUF treinado e cria `celke-agro`, mantendo o template de ferramentas do Qwen3.
 
-- `treinar_remoto.sh` (GPU externa, rodado no Linux, no macOS ou no Git Bash): `./finetuning/treinar_remoto.sh
+- `treinar_remoto.sh` (GPU externa, rodado no Linux, no macOS ou no Git Bash): `sh finetuning/treinar_remoto.sh
   [usuario@ip [porta]]`: sem argumento, pega o servidor de `GET /api/gpu` (com `docker compose exec backend`) e copia
   a chave do volume do backend para um `mktemp` apagado no fim (`trap`); com argumento, usa `GPU_SSH_KEY`
   (padrão `~/.ssh/id_ed25519`). Lê as variáveis `FINETUNE_*` do `.env`. Confere a GPU com `nvidia-smi`, envia
@@ -2213,7 +2248,7 @@ docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke
 Com uma GPU externa (por exemplo, uma instância da Hostinger com 24 GB), cadastrada na página Modelo de IA (card GPU externa):
 
 ```bash
-./finetuning/treinar_remoto.sh
+sh finetuning/treinar_remoto.sh
 docker compose exec ollama sh /finetuning/criar_modelo.sh qwen3:8b celke-agro
 docker compose --profile finetune run --rm finetune-tools avaliar --modelo celke-agro
 ```
@@ -2239,7 +2274,7 @@ ferramenta e confere `tool_call` e `done`; no fim, apaga a conversa e o municíp
 
 ## Verificação
 
-1. Duas vezes, para confirmar que a segunda não baixa nada: `./scripts/iniciar.sh` (ou o `iniciar.ps1`). Termina com
+1. Duas vezes, para confirmar que a segunda não baixa nada: `sh scripts/iniciar.sh` (ou o `iniciar.ps1`). Termina com
    "Pronto! Abra http://localhost:8091".
 2. `docker compose --profile test run --rm --build backend-tests pytest -m integration -v` (1 passou) e
    `docker compose --profile test rm -fs postgres-test`.
@@ -2272,9 +2307,13 @@ Na ordem:
 
 1. Título e um parágrafo: IA local que coleta chuva (Open-Meteo) e produção de soja e milho (IBGE) e **treina dois
    modelos** com esses dados, além de responder, descobrir e avisar.
-2. **Como executar (quem baixou do GitHub)**: o que precisa (Docker, Git, internet, RAM, disco), `git clone`,
-   `./scripts/iniciar.sh` ou o `iniciar.ps1`, o que esperar da primeira vez (download do modelo), GPU com
-   `COMPOSE_FILE`, o roteiro no navegador página a página e os comandos para parar, voltar e apagar.
+2. **Como executar**: o que precisa (Docker, internet, RAM, disco; Git só para `git clone`); como baixar em duas
+   opções, **A: arquivo ZIP** (extrair e entrar na pasta com o `compose.yaml`, sem Git) e **B: GitHub com Git**
+   (`git clone`); depois, nas duas, `sh scripts/iniciar.sh` (o `sh` funciona mesmo sem permissão de execução, como
+   depois de extrair um ZIP) ou o `iniciar.ps1`; o que esperar da primeira vez (download do modelo), GPU com
+   `COMPOSE_FILE`, o roteiro no navegador página a página, os comandos para parar, voltar e apagar; e como atualizar
+   para uma versão nova, também nas duas opções (ZIP: extrair em outra pasta e copiar o `.env` antigo; Git:
+   `git pull`), lembrando que os dados ficam nos volumes do Docker.
 3. **Os dois treinamentos**: tabela previsão da safra × fine-tuning (o que aprende, dados, como treina, como mede,
    quando treina, onde aparece), um exemplo real com números, o que **não** é treinado (números ficam no banco e nas
    ferramentas) e os três papéis da IA (responder, descobrir, avisar).

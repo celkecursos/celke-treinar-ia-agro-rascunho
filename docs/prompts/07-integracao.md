@@ -13,7 +13,7 @@ ferramenta e confere `tool_call` e `done`; no fim, apaga a conversa e o municíp
 
 ## Verificação
 
-1. Duas vezes, para confirmar que a segunda não baixa nada: `./scripts/iniciar.sh` (ou o `iniciar.ps1`). Termina com
+1. Duas vezes, para confirmar que a segunda não baixa nada: `sh scripts/iniciar.sh` (ou o `iniciar.ps1`). Termina com
    "Pronto! Abra http://localhost:8091".
 2. `docker compose --profile test run --rm --build backend-tests pytest -m integration -v` (1 passou) e
    `docker compose --profile test rm -fs postgres-test`.
