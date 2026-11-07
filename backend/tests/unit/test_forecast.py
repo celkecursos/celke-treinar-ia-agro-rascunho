@@ -3,6 +3,7 @@ import random
 import pytest
 
 from app.services.forecast_model import fit, leave_one_out, mae, solve, train
+from app.services.forecast_service import ibge_comparison
 
 
 def test_solve_linear_system():
@@ -83,6 +84,14 @@ def test_forecast_after_registration(client, registered):
     assert current["ibge_state_kg_ha"] is None  # a estimativa sintética é de 2024
     assert [c["tipo"] for c in result["charts"]] == ["linha", "barras"]
     assert view["history"][0]["features"]
+
+
+def test_ibge_comparison_comes_computed():
+    # casos em que o modelo, comparando sozinho, trocou a direção ou usou o erro do modelo no lugar
+    assert ibge_comparison(4127, 3783) == (9.1, "acima")
+    assert ibge_comparison(2934, 1887) == (55.5, "acima")
+    assert ibge_comparison(3455, 3879) == (-10.9, "abaixo")
+    assert ibge_comparison(3879, 3879) == (0.0, "igual")
 
 
 def test_train_button_and_history(client, registered):

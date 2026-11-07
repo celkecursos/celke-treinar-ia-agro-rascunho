@@ -1803,6 +1803,9 @@ rendimento (kg/ha) = intercepto + b·ano + c₁·variável₁ + c₂·variável�
   (alinhado pelo início da janela); cada combinação vira uma safra sintética e uma previsão. Os cenários seco, normal
   e chuvoso são os terços pela chuva da safra; a faixa vai do 10º ao 90º percentil, nunca menor que ± o erro médio.
 - Comparação com a LSPA da UF no mesmo ano (no milho, produção da 1ª e da 2ª safra somadas, dividida pela área).
+  Para o modelo de linguagem (explicação do treino e ferramenta `previsao_safra`), a diferença já vai calculada em
+  cada safra: `previsao_vs_estimativa_ibge_da_uf_pct` e `previsao_em_relacao_a_estimativa_ibge_da_uf` (`acima`,
+  `abaixo` ou `igual`); o prompt da explicação lembra que a estimativa é a média do estado e proíbe fazer contas.
 - Resultado guardado em `forecast_models` (município, cultura, origem `coleta` ou `botao`, modelo, resultado JSONB,
   explicação), mantendo os 20 últimos treinos de cada par: variáveis com coeficientes, equação com os sinais certos
   ("− 94,94·maior veranico"), safras usadas, modelos testados, erros do modelo e da tendência, ganho, validação safra
@@ -1927,7 +1930,8 @@ explicar. Nomes de campo explícitos: o modelo confunde nomes ambíguos (por exe
 | `mostrar_grafico` | Um gráfico das análises, que aparece na resposta |
 
 O município é encontrado pelo nome normalizado (e pela UF, se houver dois iguais); se não estiver cadastrado, a
-mensagem diz como cadastrar.
+mensagem diz como cadastrar. O nome vale também com a UF junto, "Rio Verde (GO)", "Rio Verde - GO" ou "Rio
+Verde/GO", com ou sem o campo `uf`: é assim que o sistema mostra os municípios ao modelo, e ele repete.
 
 `ToolResult` tem também `compact()` (cada lista ou dicionário longo fica com os 8 itens mais recentes, com um aviso)
 e `summary_only()` (só o resumo, com o aviso de não citar números dele), usados quando a conversa não cabe no
