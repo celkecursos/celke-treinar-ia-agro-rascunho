@@ -89,7 +89,8 @@ explicar. Nomes de campo explícitos: o modelo confunde nomes ambíguos (por exe
 | `mostrar_grafico` | Um gráfico das análises, que aparece na resposta |
 
 O município é encontrado pelo nome normalizado (e pela UF, se houver dois iguais); se não estiver cadastrado, a
-mensagem diz como cadastrar.
+mensagem diz como cadastrar. O nome vale também com a UF junto, "Rio Verde (GO)", "Rio Verde - GO" ou "Rio
+Verde/GO", com ou sem o campo `uf`: é assim que o sistema mostra os municípios ao modelo, e ele repete.
 
 `ToolResult` tem também `compact()` (cada lista ou dicionário longo fica com os 8 itens mais recentes, com um aviso)
 e `summary_only()` (só o resumo, com o aviso de não citar números dele), usados quando a conversa não cabe no

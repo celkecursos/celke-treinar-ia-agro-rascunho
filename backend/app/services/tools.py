@@ -20,7 +20,7 @@ from app.repositories.municipality_repository import MunicipalityRepository
 from app.repositories.weather_repository import WeatherRepository
 from app.schemas.municipalities import Municipality
 from app.services.analysis_service import AnalysisService, place
-from app.services.forecast_service import ForecastService
+from app.services.forecast_service import ForecastService, season_facts
 from app.services.seasons import Season, climatology, monthly_totals
 from app.services.statistics import linear_fit, mean, pearson, percent_change
 
@@ -352,6 +352,9 @@ class ToolExecutor:
     # Municípios
 
     def _find(self, name: str, uf: str | None) -> Municipality:
+        # o modelo repete o nome como o sistema mostra: "Rio Verde (GO)", com ou sem o campo `uf`
+        name, uf_in_name = split_place(name)
+        uf = uf or uf_in_name
         wanted = normalize(name)
         options = self._municipalities.all(principal_only=False)
         found = [m for m in options if normalize(m.name) == wanted and (not uf or m.state == uf.upper())]
@@ -607,7 +610,7 @@ class ToolExecutor:
             "erro_medio_do_modelo_pct": r.error_pct,
             "erro_medio_so_tendencia_pct": r.baseline_error_pct,
             "melhora_sobre_a_tendencia_pct": r.gain_pct,
-            "previsoes": [f.model_dump(mode="json") for f in r.forecasts],
+            "previsoes": [season_facts(f) for f in r.forecasts],
             "como_foi_medido": "Cada safra foi prevista por um modelo treinado sem ela (validação deixa uma de fora).",
             "fonte": f"{RAIN_SOURCE} e {PAM_SOURCE}; modelo treinado pelo sistema",
         }

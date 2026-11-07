@@ -135,6 +135,14 @@ def test_split_place():
     assert split_place("Rio Verde") == ("Rio Verde", None)
 
 
+def test_municipality_with_state_in_the_name(tools):
+    # é como o sistema mostra o município ao modelo, e ele repete assim
+    assert tools.run("previsao_safra", {"municipio": "Rio Verde (GO)", "cultura": "soja"}).ok
+    assert tools.run("previsao_safra", {"municipio": "Rio Verde (GO)", "uf": "GO", "cultura": "soja"}).ok
+    assert tools.run("chuva_da_safra", {"municipio": "Rio Verde - GO", "cultura": "milho"}).ok
+    assert not tools.run("previsao_safra", {"municipio": "Rio Verde (MT)", "cultura": "soja"}).ok
+
+
 def test_compact_keeps_the_latest_items(tools):
     result = tools.run("consultar_producao", {"cultura": "soja", "nivel": "municipio", "municipio": "Rio Verde"})
     assert len(result.content["anos"]) > COMPACT_ITEMS
